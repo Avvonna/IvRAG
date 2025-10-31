@@ -97,7 +97,7 @@ class SentenceTransformerEmbedder(BaseEmbedder):
         emb = self.model.encode(
             texts_with_prefix,
             batch_size=self.batch_size,
-            normalize_embeddings=True,
+            normalize_embeddings=False, # эмбеддинги уже нормализуются при построении faiss
             convert_to_numpy=True,
             show_progress_bar=True
         )
