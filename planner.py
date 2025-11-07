@@ -88,7 +88,7 @@ def _make_planner_prompt(
   с понятным сообщением об отсутствии вопроса и не пытайся подменять его.
 
 Правила построения плана:
-1) До 10 шагов (если не указано иное в лимитах). id шагов: s1, s2, …
+1) До 5 шагов (если не указано иное в лимитах). id шагов: s1, s2, …
 2) У каждого шага: {{ "id", "goal", "operation", "inputs", "outputs", "constraints", "depends_on"(опц.) }}.
 3) Все inputs должны быть доступны из user_query/контекста или outputs предыдущих шагов.
 
@@ -96,9 +96,9 @@ def _make_planner_prompt(
 
 Формат ответа (СТРОГО):
 {{
-  "analysis": "1–2 предложения о стратегии",
+  "analysis": "До 5 предложений о стратегии",
   "steps": [
-    {{"id":"s1","goal":"...","operation":"LOAD_WAVE_DATA","inputs":[],"outputs":["dataset"],"constraints":{{"wave_id":"<wave_id>"}}}}
+    {{"id":"...","goal":"...","operation":"...","inputs":[],"outputs":[...],"constraints":{{...}}}}
   ]
 }}
 """.strip()

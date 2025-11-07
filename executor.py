@@ -59,14 +59,28 @@ def _materialize_inputs(step: GroundedStep, ctx: dict[str, Any]) -> dict[str, An
     Returns:
         dict с готовыми аргументами для операции
     """
+    logger = logging.getLogger(__name__)
     kwargs: dict[str, Any] = {}
 
     # Разрешаем ссылки на переменные в контексте
     for param_name, ref in (step.inputs or {}).items():
-        kwargs[param_name] = ctx.get(ref, ref)
+        # Если ref - это строка и она есть в контексте, берём значение
+        if isinstance(ref, str) and ref in ctx:
+            kwargs[param_name] = ctx[ref]
+            logger.debug(f"Resolved {param_name}='{ref}' from context")
+        else:
+            # Иначе используем как есть
+            kwargs[param_name] = ref
+            logger.debug(f"Using literal {param_name}={ref}")
 
     # Добавляем constraints как параметры
-    kwargs.update(step.constraints or {})
+    for key, value in (step.constraints or {}).items():
+        # Constraints тоже могут содержать ссылки на контекст
+        if isinstance(value, str) and value in ctx:
+            kwargs[key] = ctx[value]
+            logger.debug(f"Resolved constraint {key}='{value}' from context")
+        else:
+            kwargs[key] = value
 
     # df_full нужен почти всегда
     if "df_full" in ctx and "df_full" not in kwargs:
