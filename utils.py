@@ -1,10 +1,11 @@
 import logging
 import time
-from typing import Any, Callable, Optional, Type, TypeVar
+from functools import reduce
+from typing import Any, Callable, Iterable, Optional
 
 import pandas as pd
-from openai import OpenAI, RateLimitError
-from pydantic import BaseModel
+from openai import RateLimitError
+from rapidfuzz import fuzz, process
 
 logger = logging.getLogger(__name__)
 
@@ -16,27 +17,30 @@ def _parse_formatted_question(col: pd.Series):
 
     return df
 
-def format_question_no_tag(questions: pd.Series) -> pd.Series:
+def get_question_parts(
+    col: pd.Series,
+    out: list[str] = ["type", "option"]
+):
     """
-    Собирает строку без [TAG] в формате:
-      Q [+ " @ " + DETAIL] [+ " | " + OPTION]
-    Разделители добавляются только если соответствующая часть непуста.
+    Вспомогательная функция, возвращающая тип вопроса - MIX, SINGLE, MULTI - и другие составные части
+    
+    Доступные значения out: 'tag', 'q_clean', 'detail', 'option', 'type'
     """
-    qs_parts = _parse_formatted_question(questions)
 
-    q = qs_parts["q_clean"].fillna("").astype("string").str.strip()
-    d = qs_parts["detail"].fillna("").astype("string").str.strip()
-    o = qs_parts["option"].fillna("").astype("string").str.strip()
+    QS = _parse_formatted_question(col)
 
-    # если detail/option пусты — оставляем пустую строку, иначе добавляем с разделителем
-    detail_part = d.where(d.eq(""), other=(" @ " + d))
-    option_part = o.where(o.eq(""), other=(" | " + o))
+    if "type" in out:
+        m_det = QS["detail"].notna()
+        m_opt = QS["option"].notna()
 
-    res = (q + detail_part + option_part).astype("string")
-    res.name = questions.name  # сохраняем имя столбца
-    return res
+        # MIX, SINGLE, MULTI
+        QS.loc[m_det, "type"] = "MIX"
+        QS.loc[~ m_det & ~ m_opt, "type"] = "SINGLE"
+        QS.loc[~ m_det & m_opt, "type"] = "MULTI"
 
-def _retry_call(
+    return QS[out]
+
+def retry_call(
     fn: Callable[[], Any],
     retries: int = 3,
     base_delay: float = 1.0
@@ -75,27 +79,38 @@ def _retry_call(
             else:
                 raise last_exc
 
+def take_first_n(x: Iterable, n=30):
+    x = sorted(x)
 
-T = TypeVar("T", bound=BaseModel)
+    if len(x) <= n:
+        return x
+    else:
+        return x[:n] + ['...']
 
-def _get_structured_response(
-    client: OpenAI,
-    model: str,
-    prompt: str,
-    response_model: Type[T],
-    retries: int = 3,
-    base_delay: float = 1.0,
-    temperature: float = 0.1,
-) -> T:
-    """Вывод в формате pydantic схемы"""
-    def _call():
-        resp = client.responses.parse(
-            model=model,
-            input=prompt,
-            text_format=response_model,
-            temperature=temperature,
-            store=False,
-        )
-        return resp.output_parsed
+def get_unique_questions_info(df: pd.DataFrame):
+    qs_ans = df.groupby("question", observed=True).agg(
+        waves=("wave", lambda x: set(x)),
+        answers=("answer", lambda x: set(x))
+    ).reset_index()
 
-    return _retry_call(_call, retries=retries, base_delay=base_delay)
+    qs_ans = pd.concat([
+        get_question_parts(qs_ans["question"], out=['tag', 'q_clean', 'detail', 'option', 'type']),
+        qs_ans.drop(columns=["question"])
+    ], axis=1)
+
+    qs_ans = qs_ans.groupby(["q_clean","type"]).agg(
+        waves   = ("waves",   lambda s: sorted(reduce(set.union, s, set()))),
+        answers = ("answers", lambda s: take_first_n(reduce(set.union, s, set()))),
+        options = ("option",  lambda s: sorted(s.dropna().unique().tolist())),
+        details = ("detail",  lambda s: sorted(s.dropna().unique().tolist())),
+    ).reset_index()
+
+    return qs_ans
+
+def find_top_match(query, choices) -> str:
+    match_ = process.extract(
+        query, choices,
+        scorer=fuzz.token_set_ratio,
+        limit=1
+    )[0]
+    return match_[0]
