@@ -20,11 +20,16 @@ from utils import get_unique_questions_info
 
 # Настройка логирования
 logging.basicConfig(
-    # level=logging.INFO,
-    level=logging.DEBUG,
+    level=logging.INFO,
+    # level=logging.DEBUG,
     format='%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+allowed_loggers = ['retriever', 'pipeline', 'planner', 'grounder', 'executor']
+for logger_name in allowed_loggers:
+    logging.getLogger(logger_name).setLevel(logging.DEBUG)
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,18 +76,7 @@ def setup_pipeline_config(client: OpenAI, df: pd.DataFrame) -> PipelineConfig:
     
     # Конфигурации агентов
     retriever_config = RetrieverConfig()
-    
-    # Урезанный набор операций для тестирования
-    all_ops = CapabilitySpec._create_default_operations()
-    allowed = {
-        OperationType.LOAD_WAVE_DATA,
-        OperationType.FILTER_BY_QUESTION,
-        OperationType.COMPUTE_CROSSTAB
-    }
-    mini_ops = [op for op in all_ops if op.name in allowed]
-    planner_config = PlannerConfig(capability_spec=CapabilitySpec(operations=mini_ops))
-    logger.info(f"Using {len(mini_ops)} operations: {[op.name.value for op in mini_ops]}")
-    
+    planner_config = PlannerConfig()
     grounder_config = GrounderConfig()
     executor_config = ExecutorConfig()
     
@@ -122,13 +116,14 @@ def main():
         
         # Запуск pipeline
         user_query = (
-            "Какое распределение посетителей торговых сетей? "
-            "Мне нужна только выборка по жителям Москвы и Московской области"
+            # "Какое распределение посетителей торговых сетей? "
+            "Отфильтруй мне жителей Москвы"# и Московской области"
         )
         
         logger.info(f"\nUSER QUERY: {user_query}\n")
         
         result = run_pipeline(user_query, df, config)
+        print(result)
         
         logger.info("\n" + "=" * 60)
         logger.info("PIPELINE COMPLETED SUCCESSFULLY")

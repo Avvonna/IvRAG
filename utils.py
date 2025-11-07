@@ -9,37 +9,6 @@ from rapidfuzz import fuzz, process
 
 logger = logging.getLogger(__name__)
 
-def _parse_formatted_question(col: pd.Series):
-    """ Функция, разбивающая отформатированный вопрос на составные части """
-    pattern = r"^\[(?P<tag>[^\]]+)?\]\s*(?P<q_clean>[^@|]+)(?:\s*@\s*(?P<detail>[^|]+))?(?:\s*\|\s*(?P<option>.+))?$"
-
-    df = col.str.extract(pattern)
-
-    return df
-
-def get_question_parts(
-    col: pd.Series,
-    out: list[str] = ["type", "option"]
-):
-    """
-    Вспомогательная функция, возвращающая тип вопроса - MIX, SINGLE, MULTI - и другие составные части
-    
-    Доступные значения out: 'tag', 'q_clean', 'detail', 'option', 'type'
-    """
-
-    QS = _parse_formatted_question(col)
-
-    if "type" in out:
-        m_det = QS["detail"].notna()
-        m_opt = QS["option"].notna()
-
-        # MIX, SINGLE, MULTI
-        QS.loc[m_det, "type"] = "MIX"
-        QS.loc[~ m_det & ~ m_opt, "type"] = "SINGLE"
-        QS.loc[~ m_det & m_opt, "type"] = "MULTI"
-
-    return QS[out]
-
 def retry_call(
     fn: Callable[[], Any],
     retries: int = 3,
@@ -73,7 +42,7 @@ def retry_call(
         except Exception as e:
             last_exc = e
             if attempt < retries:
-                logger.warning(f"{type(e).__name__} (attempt {attempt}/{retries}); sleep {delay:.1f}s")
+                logger.warning(f"{e} (attempt {attempt}/{retries}); sleep {delay:.1f}s")
                 time.sleep(delay)
                 delay *= 2
             else:
@@ -87,22 +56,10 @@ def take_first_n(x: Iterable, n=30):
     else:
         return x[:n] + ['...']
 
-def get_unique_questions_info(df: pd.DataFrame):
-    qs_ans = df.groupby("question", observed=True).agg(
-        waves=("wave", lambda x: set(x)),
-        answers=("answer", lambda x: set(x))
-    ).reset_index()
-
-    qs_ans = pd.concat([
-        get_question_parts(qs_ans["question"], out=['tag', 'q_clean', 'detail', 'option', 'type']),
-        qs_ans.drop(columns=["question"])
-    ], axis=1)
-
-    qs_ans = qs_ans.groupby(["q_clean","type"]).agg(
-        waves   = ("waves",   lambda s: sorted(reduce(set.union, s, set()))),
-        answers = ("answers", lambda s: take_first_n(reduce(set.union, s, set()))),
-        options = ("option",  lambda s: sorted(s.dropna().unique().tolist())),
-        details = ("detail",  lambda s: sorted(s.dropna().unique().tolist())),
+def get_unique_questions_info(df: pd.DataFrame):   
+    qs_ans = df.groupby(["question"], observed=True).agg(
+        waves   = ("wave",   set),
+        answers = ("answer", set)
     ).reset_index()
 
     return qs_ans
@@ -114,3 +71,23 @@ def find_top_match(query, choices) -> str:
         limit=1
     )[0]
     return match_[0]
+
+def remove_defs_and_refs(schema: dict):
+    schema = schema.copy()
+    defs = schema.pop('$defs', {})
+
+    def resolve(subschema):
+        if isinstance(subschema, dict):
+            ref = subschema.get('$ref', None)
+            if ref:
+                _def = ref.split('/')[-1]
+                return resolve(defs[_def])
+            return {
+                _def: resolve(_ref)
+                for _def, _ref in subschema.items()
+            }
+        if isinstance(subschema, list):
+            return [resolve(ss) for ss in subschema]
+        return subschema
+    
+    return resolve(schema)

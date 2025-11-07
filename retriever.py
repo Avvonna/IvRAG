@@ -56,6 +56,8 @@ def retriever(user_query: str, config: PipelineConfig) -> RetrieverOut:
 
     def _call():
         logger.debug(f"Calling LLM with model: {rc.model}")
+        logger.debug(f"Prompt: {prompt}")
+        
         resp = config.client.chat.completions.create(
             model=rc.model,
             messages=[{"role": "user", "content": prompt}],

@@ -82,8 +82,8 @@ def _materialize_inputs(step: GroundedStep, ctx: dict[str, Any]) -> dict[str, An
         else:
             kwargs[key] = value
 
-    # df_full нужен почти всегда
-    if "df_full" in ctx and "df_full" not in kwargs:
-        kwargs["df_full"] = ctx["df_full"]
+    # dataset нужен почти всегда
+    if "dataset" in ctx and "dataset" not in kwargs:
+        kwargs["dataset"] = ctx["dataset"]
 
     return kwargs

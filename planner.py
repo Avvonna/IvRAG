@@ -5,7 +5,7 @@ from capability_spec import CapabilitySpec
 from catalog import QuestionCatalog
 from config import PipelineConfig
 from schemas import PlannerOut, RetrieverOut
-from utils import retry_call
+from utils import retry_call, remove_defs_and_refs
 
 logger = logging.getLogger(__name__)
 
@@ -41,28 +41,20 @@ def planner(
 
     def _call():
         logger.debug(f"Calling LLM with model: {plc.model}")
-        resp = config.client.chat.completions.create(
+        logger.debug(f"Prompt: {prompt}")
+        resp = config.client.responses.parse(
             model=plc.model,
-            messages=[{"role": "user", "content": prompt}],
+            input=[{"role": "user", "content": prompt}],
             temperature=plc.temperature,
-            response_format={"type": "json_object"}
+            text_format=    # TODO: ???
         )
-        content = resp.choices[0].message.content
-        assert content, "Empty planner response"
-        return content.strip()
+        plan = resp.output_parsed
+        logger.debug(f"PLAN: {plan}")
+        assert plan, "Empty planner response"
 
-    response_text = retry_call(_call, retries=plc.retries, base_delay=plc.base_delay)
-    logger.debug(f"LLM response length: {len(response_text)}")
-    
-    try:
-        plan = PlannerOut.model_validate_json(response_text)
-        logger.info(f"Successfully created plan with {len(plan.steps)} steps")
         return plan
-    except Exception as e:
-        logger.error(f"Failed to parse planner response: {e}")
-        logger.debug(f"Response text: {response_text[:1000]}")
-        raise ValueError(f"Не удалось распарсить план: {e}")
-
+    
+    return retry_call(_call, retries=plc.retries, base_delay=plc.base_delay)
 
 def _make_planner_prompt(
     user_query: str,
@@ -72,7 +64,7 @@ def _make_planner_prompt(
     context_json = json.dumps(context or {}, ensure_ascii=False)
 
     prompt = f"""
-Роль: Ты — ПЛАНИРОВЩИК (tool-agnostic). Составь абстрактный план как DAG шагов для решения задачи.
+Роль: Ты — ПЛАНИРОВЩИК. Составь абстрактный план как DAG шагов для решения задачи.
 
 Цель:
 - user_query: {user_query}
@@ -81,25 +73,13 @@ def _make_planner_prompt(
 {capability_spec.to_prompt_context("detailed")}
 
 ВАЖНО:
-- Используй ТОЛЬКО операции из CapabilitySpec.
-- Используй ТОЛЬКО вопросы из allowed_questions. НЕ ПРИДУМЫВАЙ новые.
-- Оперируй ТОЛЬКО колонками из dataset_schema. Если операция требует поля, которого нет, не используй её.
-- Если для решения требуется вопрос, которого нет в allowed_questions, верни план из одного шага CHECK_DATA_AVAILABILITY
-  с понятным сообщением об отсутствии вопроса и не пытайся подменять его.
+- Используй ТОЛЬКО операции из CapabilitySpec в СТРОГОМ СООТВЕТСТВИИ с описанием.
+- Используй ТОЛЬКО вопросы и ответы на них из allowed_questions. НЕ ПРИДУМЫВАЙ новые, НЕ МЕНЯЙ ФОРМУЛИРОВКИ.
+- Используй ТОЛЬКО необходимые тебе вопросы из доступных
 
 Правила построения плана:
 1) До 5 шагов (если не указано иное в лимитах). id шагов: s1, s2, …
 2) У каждого шага: {{ "id", "goal", "operation", "inputs", "outputs", "constraints", "depends_on"(опц.) }}.
 3) Все inputs должны быть доступны из user_query/контекста или outputs предыдущих шагов.
-
-Ответ ТОЛЬКО ЧИСТЫМ JSON (без Markdown, без комментариев).
-
-Формат ответа (СТРОГО):
-{{
-  "analysis": "До 5 предложений о стратегии",
-  "steps": [
-    {{"id":"...","goal":"...","operation":"...","inputs":[],"outputs":[...],"constraints":{{...}}}}
-  ]
-}}
 """.strip()
     return prompt

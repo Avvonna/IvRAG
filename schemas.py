@@ -7,29 +7,7 @@ from pydantic import BaseModel, Field
 class QuestionInfo(BaseModel):
     id: str
     waves: list[str] = Field(default_factory=list)
-    options: list[str] = Field(default_factory=list)
-    details: list[str] = Field(default_factory=list)
     answers: list[str] = Field(default_factory=list)
-
-    def stringify(
-        self,
-        include: list[Literal["q_clean", "answers", "details", "options", "waves"]] = [
-            "q_clean",
-            "answers",
-            "details",
-            "options"
-        ]
-    ) -> str:
-        parts = [f"{self.id}"]
-        if "answers" in include and self.answers:
-            parts.append(f"\n\tAnswers: {self.answers}")
-        if "details" in include and self.details:
-            parts.append(f"\n\tDetails: {self.details}")
-        if "options" in include and self.options:
-            parts.append(f"\n\tOptions: {self.options}")
-        if "waves" in include and self.waves:
-            parts.append(f"\n\tWaves: {self.waves}")
-        return "".join(parts)
 
 
 class ScoredQuestion(BaseModel):

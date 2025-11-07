@@ -1,6 +1,4 @@
-"""
-Каталог вопросов
-"""
+from __future__ import annotations
 import pandas as pd
 from pydantic import BaseModel, Field
 
@@ -14,33 +12,23 @@ class QuestionCatalog(BaseModel):
         return [q.id for q in self.questions]
 
     def as_value_catalog(self, limit: int = 30) -> dict[str, dict]:
-        """
-        Возвращает словарь вопросов с ограничением на количество элементов
-        
-        Args:
-            limit: Максимальное количество элементов в списках (answers, details, etc.)
-        """
         def clip(xs: list[str]) -> list[str]:
             return xs[:limit] if limit and len(xs) > limit else xs
         
         return {
             q.id: {
                 "answers": clip(q.answers),
-                "details": clip(q.details),
-                "options": clip(q.options),
                 "waves": clip(q.waves),
             }
             for q in self.questions
         }
 
     @classmethod
-    def from_df(cls, df: pd.DataFrame) -> "QuestionCatalog":
+    def from_df(cls, df: pd.DataFrame) -> QuestionCatalog:
         questions = [
             QuestionInfo(
-                id=getattr(row, "q_clean"),
+                id=getattr(row, "question"),
                 waves=getattr(row, "waves"),
-                options=getattr(row, "options"),
-                details=getattr(row, "details"),
                 answers=getattr(row, "answers"),
             )
             for row in df.itertuples(index=False)

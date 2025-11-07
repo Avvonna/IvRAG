@@ -5,27 +5,9 @@ from typing import Literal
 
 
 class OperationType(str, Enum):
-    # === DATA LOADING ===
-    LOAD_WAVE_DATA = "LOAD_WAVE_DATA"
-    
-    # === FILTERING ===
-    FILTER_BY_QUESTION = "FILTER_BY_QUESTION"
-    FILTER_BY_COLUMN = "FILTER_BY_COLUMN"
-    
-    # === AGGREGATION ===
-    COMPUTE_DISTRIBUTION = "COMPUTE_DISTRIBUTION"
-    COMPUTE_CROSSTAB = "COMPUTE_CROSSTAB"
-    COMPUTE_STATISTICS = "COMPUTE_STATISTICS"
-    
-    # === TRANSFORMATION ===
-    RANK_RESULTS = "RANK_RESULTS"
-    COMPARE_GROUPS = "COMPARE_GROUPS"
-    
-    # === VALIDATION ===
-    CHECK_DATA_AVAILABILITY = "CHECK_DATA_AVAILABILITY"
-    
-    # === OUTPUT ===
-    FORMAT_REPORT = "FORMAT_REPORT"
+    LOAD_DATA = "LOAD_DATA"
+    FILTER = "FILTER"
+    PIVOT = "PIVOT"
 
 
 @dataclass
@@ -63,14 +45,8 @@ class CapabilitySpec:
             return "Data Loading"
         elif "FILTER" in name:
             return "Filtering"
-        elif "COMPUTE" in name:
+        elif "PIVOT" in name:
             return "Aggregation"
-        elif "RANK" in name or "COMPARE" in name:
-            return "Transformation"
-        elif "CHECK" in name or "VALIDATE" in name:
-            return "Validation"
-        elif "FORMAT" in name or "REPORT" in name:
-            return "Output"
         return "Other"
 
     def list_operations(self, category: str | None = None) -> list[OperationSpec]:
@@ -86,175 +62,53 @@ class CapabilitySpec:
         return [
             # ==================== DATA LOADING ====================
             OperationSpec(
-                name=OperationType.LOAD_WAVE_DATA,
-                description="Загрузить данные конкретной волны опроса",
-                inputs={"wave_id": "ID волны (например, '2025-03')"},
+                name=OperationType.LOAD_DATA,
+                description="Загрузить данные результатов опросов",
+                inputs={"waves": "Список волн, которые следует взять для анализа"},
                 outputs=["dataset"],
-                example={"wave_id": "2025-03"}
+                example={"waves": ["2025-01"]}
             ),
             
             # ==================== FILTERING ====================
             OperationSpec(
-                name=OperationType.FILTER_BY_QUESTION,
+                name=OperationType.FILTER,
                 description="Отфильтровать респондентов по ответам на конкретный вопрос",
                 inputs={
                     "dataset": "Исходный датасет",
-                    "question_id": "ID вопроса из allowed_questions",
+                    "question": "Вопрос из allowed_questions",
                     "answer_values": "Список допустимых ответов (если пусто - все ответившие)",
                     "logic": "Логика фильтрации: 'include' (есть эти ответы) или 'exclude' (нет этих ответов)"
                 },
                 outputs=["filtered_dataset"],
                 constraints={
-                    "question_id": "MUST be from allowed_questions",
+                    "question": "MUST be from allowed_questions",
                     "logic": "One of: ['include', 'exclude']"
                 },
                 example={
                     "dataset": "dataset",
-                    "question_id": "В каких магазинах Вы делаете покупки? ",
-                    "answer_values": ["Пятерочка", "Магнит"],
+                    "question": "[Тег] Вопрос?",
+                    "answer_values": ["Ответ 1", "Ответ 2"],
                     "logic": "include"
                 }
             ),
             
             # ==================== AGGREGATION ====================
             OperationSpec(
-                name=OperationType.COMPUTE_DISTRIBUTION,
-                description="Вычислить распределение ответов на вопрос (частоты и проценты)",
+                name=OperationType.PIVOT,
+                description="Вычислить распределение ответов на вопрос",
                 inputs={
                     "dataset": "Датасет (может быть отфильтрованным)",
-                    "question_id": "ID вопроса из allowed_questions",
-                    "metric": "Метрика: 'count' (количество), 'percentage' (проценты), 'both'",
-                    "sort_by": "Сортировка: 'value' (по алфавиту), 'count' (по частоте), 'none'",
-                    "top_n": "Ограничить топ-N результатов (опционально)"
+                    "question": "Вопрос из allowed_questions"
                 },
-                outputs=["distribution_table"],
+                outputs=["pivot"],
                 constraints={
-                    "question_id": "MUST be from allowed_questions",
-                    "metric": "One of: ['count', 'percentage', 'both']"
+                    "question": "MUST be from allowed_questions",
                 },
                 example={
                     "dataset": "filtered_dataset",
-                    "question_id": "В каких магазинах Вы делаете покупки? ",
-                    "metric": "percentage",
-                    "sort_by": "count",
-                    "top_n": 10
+                    "question": "В каких магазинах Вы делаете покупки?"
                 }
-            ),
-            
-            OperationSpec(
-                name=OperationType.COMPUTE_CROSSTAB,
-                description="Построить двумерную таблицу (crosstab) по двум вопросам",
-                inputs={
-                    "dataset": "Датасет",
-                    "question_id_rows": "Вопрос для строк",
-                    "question_id_cols": "Вопрос для столбцов",
-                    "values": "Что показывать: 'count', 'percentage_row', 'percentage_col', 'percentage_total'",
-                    "normalize": "Нормализация: 'none', 'rows', 'columns', 'all'"
-                },
-                outputs=["crosstab_table"],
-                constraints={
-                    "question_id_rows": "MUST be from allowed_questions",
-                    "question_id_cols": "MUST be from allowed_questions"
-                },
-                example={
-                    "dataset": "dataset",
-                    "question_id_rows": "В каких магазинах Вы делаете покупки? ",
-                    "question_id_cols": "Где Вы покупаете продукты питания? ",
-                    "values": "count",
-                    "normalize": "rows"
-                }
-            ),
-            
-            OperationSpec(
-                name=OperationType.COMPUTE_STATISTICS,
-                description="Вычислить базовую статистику по группам",
-                inputs={
-                    "dataset": "Датасет",
-                    "group_by_question": "Вопрос для группировки (опционально)",
-                    "metrics": "Список метрик: ['total_respondents', 'unique_answers', 'response_rate']"
-                },
-                outputs=["stats_table"],
-                example={
-                    "dataset": "dataset",
-                    "group_by_question": "В каких магазинах Вы делаете покупки? ",
-                    "metrics": ["total_respondents", "unique_answers"]
-                }
-            ),
-            
-            # ==================== TRANSFORMATION ====================
-            OperationSpec(
-                name=OperationType.RANK_RESULTS,
-                description="Отсортировать и взять топ-N результатов",
-                inputs={
-                    "table": "Входная таблица",
-                    "sort_column": "Колонка для сортировки",
-                    "descending": "True для убывания, False для возрастания",
-                    "top_n": "Количество записей (опционально)"
-                },
-                outputs=["ranked_table"],
-                example={
-                    "table": "distribution_table",
-                    "sort_column": "percentage",
-                    "descending": True,
-                    "top_n": 10
-                }
-            ),
-            
-            OperationSpec(
-                name=OperationType.COMPARE_GROUPS,
-                description="Сравнить метрики между двумя группами респондентов",
-                inputs={
-                    "dataset": "Датасет",
-                    "question_id": "Вопрос для анализа",
-                    "split_by_column": "Колонка для разделения на группы",
-                    "group_a_value": "Значение для группы A",
-                    "group_b_value": "Значение для группы B",
-                    "metric": "'percentage' или 'count'"
-                },
-                outputs=["comparison_table"],
-                example={
-                    "dataset": "dataset",
-                    "question_id": "В каких магазинах Вы делаете покупки? ",
-                    "split_by_column": "wave",
-                    "group_a_value": "2025-03",
-                    "group_b_value": "2024-12",
-                    "metric": "percentage"
-                }
-            ),
-            
-            # ==================== VALIDATION ====================
-            OperationSpec(
-                name=OperationType.CHECK_DATA_AVAILABILITY,
-                description="Проверить доступность необходимых данных (вопросов, колонок)",
-                inputs={
-                    "required_questions": "Список ID вопросов, которые нужны",
-                    "required_columns": "Список колонок, которые нужны"
-                },
-                outputs=["validation_report"],
-                example={
-                    "required_questions": ["В каких магазинах Вы делаете покупки? "],
-                    "required_columns": ["city", "wave"]
-                }
-            ),
-            
-            # ==================== OUTPUT ====================
-            OperationSpec(
-                name=OperationType.FORMAT_REPORT,
-                description="Отформатировать финальную таблицу для отчёта",
-                inputs={
-                    "table": "Таблица для форматирования",
-                    "format": "'markdown', 'csv', или 'json'",
-                    "round_decimals": "Количество знаков после запятой (опционально)",
-                    "add_summary": "Добавить текстовое резюме (True/False)"
-                },
-                outputs=["formatted_report"],
-                example={
-                    "table": "ranked_table",
-                    "format": "markdown",
-                    "round_decimals": 2,
-                    "add_summary": True
-                }
-            ),
+            )
         ]
 
     def to_prompt_context(

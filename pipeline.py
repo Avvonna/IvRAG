@@ -54,16 +54,8 @@ def run_pipeline(
     logger.info(f"Plan has {len(planner_out.steps)} steps:")
     for i, step in enumerate(planner_out.steps, 1):
         logger.info(f"  {i}. [{step.id}] {step.operation.value}")
-        logger.debug(f"     Goal: {step.goal}")
-        
-        if isinstance(step.inputs, dict):
-            inputs_display = list(step.inputs.keys())
-        elif isinstance(step.inputs, list):
-            inputs_display = step.inputs
-        else:
-            inputs_display = []
-        
-        logger.debug(f"     Inputs: {inputs_display}")
+        logger.debug(f"     Goal: {step.goal}")        
+        logger.debug(f"     Inputs: {step.inputs}")
         logger.debug(f"     Outputs: {step.outputs}")
     
     # 3. Grounder - привязка к реализациям
@@ -79,7 +71,7 @@ def run_pipeline(
     logger.info("STAGE 4: EXECUTOR")
     logger.info("=" * 60)
     
-    ctx = {"df_full": df}
+    ctx = {"dataset": df}
     final_ctx = executor(gplan, ctx)
     
     # Вывод результатов
@@ -87,7 +79,7 @@ def run_pipeline(
     logger.info("RESULTS")
     logger.info("=" * 60)
     
-    result_keys = [k for k in final_ctx.keys() if k != "df_full"]
+    result_keys = [k for k in final_ctx.keys() if k != "dataset"]
     logger.info(f"Available results: {result_keys}")
     
     for key in ["dataset", "filtered_dataset", "crosstab_table"]:
