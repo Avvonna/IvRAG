@@ -7,8 +7,10 @@ if TYPE_CHECKING:
     from catalog import QuestionCatalog
     from openai import OpenAI
 
-# DEFAULT_MODEL = "meta-llama/llama-3.3-8b-instruct:free"
-DEFAULT_MODEL = "meta-llama/llama-4-maverick:free"
+# DEFAULT_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+DEFAULT_MODEL = "alibaba/tongyi-deepresearch-30b-a3b:free"
+
+# DEFAULT_MODEL = "meta-llama/llama-4-maverick:free"
 # !!! DEFAULT_MODEL = "deepseek/deepseek-chat-v3.1"
 DEFAULT_TEMPERATURE = 0.3
 DEFAULT_BASE_DELAY = 1.0

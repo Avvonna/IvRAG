@@ -95,7 +95,9 @@ def setup_pipeline_config(client: OpenAI, df: pd.DataFrame) -> PipelineConfig:
     return config
 
 
-def main():
+def main(
+    user_query: str
+):
     """Главная функция"""
     try:
         # Загрузка окружения
@@ -114,20 +116,17 @@ def main():
         # Настройка pipeline
         config = setup_pipeline_config(client, df)
         
-        # Запуск pipeline
-        user_query = (
-            # "Какое распределение посетителей торговых сетей? "
-            "Отфильтруй мне жителей Москвы"# и Московской области"
-        )
-        
+        # Запуск pipeline        
         logger.info(f"\nUSER QUERY: {user_query}\n")
         
         result = run_pipeline(user_query, df, config)
-        print(result)
         
         logger.info("\n" + "=" * 60)
         logger.info("PIPELINE COMPLETED SUCCESSFULLY")
         logger.info("=" * 60)
+        logger.info(f"Output type: {type(result)}")
+
+        return result
         
     except Exception as e:
         logger.error(f"Pipeline failed: {e}", exc_info=True)

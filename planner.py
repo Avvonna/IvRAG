@@ -5,7 +5,7 @@ from capability_spec import CapabilitySpec
 from catalog import QuestionCatalog
 from config import PipelineConfig
 from schemas import PlannerOut, RetrieverOut
-from utils import retry_call, remove_defs_and_refs
+from utils import retry_call
 
 logger = logging.getLogger(__name__)
 
@@ -15,11 +15,22 @@ def planner(
     retriever_out: RetrieverOut,
     config: PipelineConfig
 ) -> PlannerOut:
+    """
+    Составляет план выполнения для решения пользовательского запроса
+    
+    Args:
+        user_query: Запрос пользователя
+        retriever_out: Результаты работы retriever с релевантными вопросами
+        config: Конфигурация pipeline
+        
+    Returns:
+        План выполнения в виде последовательности шагов
+    """
     logger.info(f"Starting planner for query: {user_query[:100]}...")
     
     plc = config.planner_config
 
-    # Фильтруем вопросы
+    # Фильтруем каталог вопросов по результатам retriever
     chosen_clean_questions_list = retriever_out.clean_list()
     chosen_questions_catalog = QuestionCatalog(
         questions=[
@@ -30,7 +41,7 @@ def planner(
     
     logger.debug(f"Working with {len(chosen_questions_catalog.questions)} questions")
     
-    # Подмешиваем их в контекст
+    # Формируем контекст для LLM
     context = {
         "allowed_questions": chosen_questions_catalog.as_value_catalog(),
         "dataset_schema": config.df_schema,
@@ -39,47 +50,73 @@ def planner(
     prompt = _make_planner_prompt(user_query, context, plc.capability_spec)
     logger.debug(f"Generated prompt of length: {len(prompt)}")
 
-    def _call():
+    def _call() -> PlannerOut:
+        """Вызов LLM с structured output"""
         logger.debug(f"Calling LLM with model: {plc.model}")
-        logger.debug(f"Prompt: {prompt}")
-        resp = config.client.responses.parse(
-            model=plc.model,
-            input=[{"role": "user", "content": prompt}],
-            temperature=plc.temperature,
-            text_format=    # TODO: ???
-        )
-        plan = resp.output_parsed
-        logger.debug(f"PLAN: {plan}")
-        assert plan, "Empty planner response"
-
-        return plan
+        
+        try:
+            # Используем structured output через beta API
+            resp = config.client.beta.chat.completions.parse(
+                model=plc.model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=plc.temperature,
+                response_format=PlannerOut
+            )
+            
+            # Извлечение распарсенного ответа
+            plan = resp.choices[0].message.parsed
+            
+            if not plan:
+                raise ValueError("LLM вернул пустой ответ")
+            
+            if not plan.steps:
+                raise ValueError("LLM вернул план без шагов")
+            
+            logger.debug(f"Plan received: {len(plan.steps)} steps")
+            logger.debug(f"Plan analysis: {plan.analysis}")
+            
+            return plan
+            
+        except Exception as e:
+            logger.error(f"Failed to parse LLM response: {e}")
     
-    return retry_call(_call, retries=plc.retries, base_delay=plc.base_delay)
+    plan = retry_call(_call, retries=plc.retries, base_delay=plc.base_delay)
+    
+    logger.info(f"Planner completed: {len(plan.steps)} steps generated")
+    return plan
 
-def _make_planner_prompt(
-    user_query: str,
-    context: dict,
-    capability_spec: CapabilitySpec
-) -> str:
-    context_json = json.dumps(context or {}, ensure_ascii=False)
+
+def _make_planner_prompt(user_query: str, context: dict, capability_spec: CapabilitySpec) -> str:
+    context_json = json.dumps(context, ensure_ascii=False, indent=2)
+    operations_spec = capability_spec.to_prompt_context("detailed", include_examples=True)
 
     prompt = f"""
-Роль: Ты — ПЛАНИРОВЩИК. Составь абстрактный план как DAG шагов для решения задачи.
+# РОЛЬ
+Ты — ПЛАНИРОВЩИК операций для системы анализа данных опросов.
 
-Цель:
-- user_query: {user_query}
-- context: {context_json}
+# ЗАДАЧА
+Составь оптимальный план выполнения для решения запроса пользователя.
 
-{capability_spec.to_prompt_context("detailed")}
+# ЗАПРОС ПОЛЬЗОВАТЕЛЯ
+{user_query}
 
-ВАЖНО:
-- Используй ТОЛЬКО операции из CapabilitySpec в СТРОГОМ СООТВЕТСТВИИ с описанием.
-- Используй ТОЛЬКО вопросы и ответы на них из allowed_questions. НЕ ПРИДУМЫВАЙ новые, НЕ МЕНЯЙ ФОРМУЛИРОВКИ.
-- Используй ТОЛЬКО необходимые тебе вопросы из доступных
+# ДОСТУПНЫЙ КОНТЕКСТ
+{context_json}
 
-Правила построения плана:
-1) До 5 шагов (если не указано иное в лимитах). id шагов: s1, s2, …
-2) У каждого шага: {{ "id", "goal", "operation", "inputs", "outputs", "constraints", "depends_on"(опц.) }}.
-3) Все inputs должны быть доступны из user_query/контекста или outputs предыдущих шагов.
+# ДОСТУПНЫЕ ОПЕРАЦИИ
+{operations_spec}
+
+# КРИТИЧЕСКИ ВАЖНЫЕ ТРЕБОВАНИЯ К ПЛАНУ
+Обязательные правила:
+1. Использовать ТОЛЬКО операции из спецификации — не придумывай новые операции
+2. Использовать ТОЛЬКО вопросы из allowed_questions — не меняй формулировки
+3. ИСПОЛЬЗОВАТЬ ТОЛЬКО ДОСТУПНЫЕ ANSWER_VALUES — каждый answer_value ДОЛЖЕН существовать в списке answers для указанного question
+4. ОБЯЗАТЕЛЬНАЯ ПРОВЕРКА — перед указанием answer_values проверь, что они есть в context_json
+5. Соблюдать типы данных — inputs/outputs должны соответствовать спецификации
+6. Определить зависимости — если шаг использует output предыдущего, укажи в depends_on
+
+ФОРМАТ ОТВЕТА
+Верни план в формате JSON согласно схеме PlannerOut.
 """.strip()
+
     return prompt

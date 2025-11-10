@@ -74,22 +74,5 @@ def run_pipeline(
     ctx = {"dataset": df}
     final_ctx = executor(gplan, ctx)
     
-    # Вывод результатов
-    logger.info("=" * 60)
-    logger.info("RESULTS")
-    logger.info("=" * 60)
-    
-    result_keys = [k for k in final_ctx.keys() if k != "dataset"]
-    logger.info(f"Available results: {result_keys}")
-    
-    for key in ["dataset", "filtered_dataset", "crosstab_table"]:
-        if key in final_ctx:
-            data = final_ctx[key]
-            if isinstance(data, pd.DataFrame):
-                logger.info(f"\n{key}: shape={data.shape}")
-                logger.info(f"\n{data.head()}")
-            else:
-                logger.info(f"\n{key}: {data}")
-    
     logger.info("Pipeline completed successfully")
     return final_ctx
