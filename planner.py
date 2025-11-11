@@ -83,6 +83,7 @@ def planner(
     plan = retry_call(_call, retries=plc.retries, base_delay=plc.base_delay)
     
     logger.info(f"Planner completed: {len(plan.steps)} steps generated")
+    logger.debug(f"Planner returned: {plan}")
     return plan
 
 

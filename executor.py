@@ -1,6 +1,6 @@
 import logging
-from typing import Any
 from collections import defaultdict, deque
+from typing import Any
 
 from grounder import GroundedStep, GrounderOut
 from operations import GroundingError
@@ -175,6 +175,6 @@ def _materialize_inputs(step: GroundedStep, ctx: dict[str, Any]) -> dict[str, An
     # Автоматическое добавление dataset если нужно
     if "dataset" in ctx and "dataset" not in kwargs:
         kwargs["dataset"] = ctx["dataset"]
-        logger.debug(f"  dataset = ctx['dataset'] (auto)")
+        logger.debug("  dataset = ctx['dataset'] (auto)")
     
     return kwargs

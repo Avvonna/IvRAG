@@ -2,8 +2,9 @@ import logging
 from typing import Any, Callable, Optional
 
 import pandas as pd
-from utils import find_top_match
+
 from capability_spec import OperationType
+from utils import find_top_match
 
 logger = logging.getLogger(__name__)
 

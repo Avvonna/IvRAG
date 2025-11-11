@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import Literal
 
-if TYPE_CHECKING:
-    from catalog import QuestionCatalog
-    from openai import OpenAI
+import pandas as pd
+from openai import OpenAI
 
-# DEFAULT_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
-DEFAULT_MODEL = "alibaba/tongyi-deepresearch-30b-a3b:free"
+from catalog import QuestionCatalog
+from utils import get_unique_questions_info
 
-# DEFAULT_MODEL = "meta-llama/llama-4-maverick:free"
-# !!! DEFAULT_MODEL = "deepseek/deepseek-chat-v3.1"
-DEFAULT_TEMPERATURE = 0.3
+DEFAULT_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+DEFAULT_TEMPERATURE = 0.2
 DEFAULT_BASE_DELAY = 1.0
 DEFAULT_N_RETRIES = 3
 
@@ -40,26 +38,12 @@ class PlannerConfig(BaseAgentConfig):
 
 
 @dataclass
-class GrounderConfig(BaseAgentConfig):
-    """Конфигурация для Grounder"""
-    pass
-
-
-@dataclass
-class ExecutorConfig(BaseAgentConfig):
-    """Конфигурация для Executor"""
-    pass
-
-
-@dataclass
 class PipelineConfig:
     """Конфигурация Pipeline"""
     client: OpenAI
 
     retriever_config: RetrieverConfig
     planner_config: PlannerConfig
-    grounder_config: GrounderConfig
-    executor_config: ExecutorConfig
 
     df_schema: list
     catalog: QuestionCatalog
@@ -71,3 +55,22 @@ class PipelineConfig:
     def __post_init__(self):
         self.all_QS_clean_list = self.catalog.allowed_question_ids()
         self.all_QS_info_dict = self.catalog.as_value_catalog()
+    
+    @classmethod
+    def setup(
+        cls,
+        df: pd.DataFrame,
+        client: OpenAI,
+        retriever_params: dict[Literal["model", "temperature"], str|float] = {},
+        planner_params: dict[Literal["model", "temperature"], str|float] = {},
+    ):
+        rc = RetrieverConfig(**retriever_params)
+        pp = PlannerConfig(**planner_params)
+
+        return cls(
+            client=client, retriever_config=rc, planner_config=pp,
+            df_schema=df.columns.to_list(),
+            catalog=QuestionCatalog.from_df(
+                get_unique_questions_info(df)
+            )
+        )

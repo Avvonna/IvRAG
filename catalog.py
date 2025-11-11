@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import pandas as pd
 from pydantic import BaseModel, Field
 
@@ -24,13 +25,13 @@ class QuestionCatalog(BaseModel):
         }
 
     @classmethod
-    def from_df(cls, df: pd.DataFrame) -> QuestionCatalog:
+    def from_df(cls, qs_info_df: pd.DataFrame) -> QuestionCatalog:
         questions = [
             QuestionInfo(
                 id=getattr(row, "question"),
                 waves=getattr(row, "waves"),
                 answers=getattr(row, "answers"),
             )
-            for row in df.itertuples(index=False)
+            for row in qs_info_df.itertuples(index=False)
         ]
         return cls(questions=sorted(questions, key=lambda q: q.id))

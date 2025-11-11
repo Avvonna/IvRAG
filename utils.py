@@ -1,7 +1,6 @@
 import logging
 import time
-from functools import reduce
-from typing import Any, Callable, Iterable, Optional
+from typing import Callable, Iterable, Optional, TypeVar
 
 import pandas as pd
 from openai import RateLimitError
@@ -9,11 +8,13 @@ from rapidfuzz import fuzz, process
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar('T')
+
 def retry_call(
-    fn: Callable[[], Any],
+    fn: Callable[[], T],
     retries: int = 3,
     base_delay: float = 1.0
-) -> Any:
+) -> T:
     """Повтор с откатом (учитывает rate limit и X-RateLimit-Reset)"""
     delay = base_delay
     last_exc: Optional[Exception] = None

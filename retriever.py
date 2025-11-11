@@ -22,49 +22,81 @@ def retriever(user_query: str, config: PipelineConfig) -> RetrieverOut:
     rc = config.retriever_config
 
     prompt = f"""
-Запрос пользователя: {user_query}
+# ТЕХНИЧЕСКОЕ ЗАДАНИЕ: Отбор вопросов из результатов опросов населения России на различные темы для наиболее точного ответа на вопрос пользователя
 
-Список доступных вопросов:
+**ЦЕЛЬ:** Найти минимальный набор вопросов для решения аналитической задачи пользователя через фильтрацию респондентов и анализ
+
+**ЗАПРОС:** {user_query}
+
+**ДОСТУПНЫЕ ВОПРОСЫ:**
 {questions_block}
 
----
-Инструкция:
+## СПЕЦИАЛИЗИРОВАННЫЕ КРИТЕРИИ ОТБОРА:
 
-1. Проанализируй запрос
-2. Подбери релевантные вопросы из списка с оценкой релевантности (0-100)
+### ВЫСОКИЙ ПРИОРИТЕТ (релевантность: 90-100):
+- Прямая тематическая связь с запросом
+- Ключевые вопросы для понимания объекта анализа
+- Вопросы, формирующие основу фильтрации
 
-Формат вывода:
+### СРЕДНИЙ ПРИОРИТЕТ (релевантность: 60-89):
+- Вспомогательные вопросы по теме
+- Факторы влияния на основной показатель
+- Вопросы для кросс-анализа
 
-**Рассуждение:**
-[Краткий анализ запроса: 2-5 предложений о том, что нужно пользователю]
+### СЕГМЕНТАЦИОННЫЕ ВОПРОСЫ (релевантность: 40-59):
+- Демографические характеристики (возраст, доход, образование)
+- Географические признаки (регион, город, тип населенного пункта)
+- Социально-экономические факторы
 
-**Рекомендованные вопросы:**
+### КОНТЕКСТУАЛЬНЫЕ (релевантность: 25-39):
+- Поведенческие паттерны
+- Предпочтения и привычки
+- Условия принятия решений
 
-1. **[90/100]** "[Исходная формулировка вопроса]"
-   • **Обоснование:** [Почему вопрос напрямую отвечает на запрос]
+### НИЗКИЙ ПРИОРИТЕТ (релевантность: 0-24):
+- Не релевантные для конкретной задачи
+- Слишком общие или неспецифичные вопросы
 
-2. **[80/100]** "[Исходная формулировка вопроса]"
-   • **Обоснование:** [Как вопрос связан с ключевой темой]
+## СТРАТЕГИЯ ОТБОРА:
 
-3. **[60/100]** "[Исходная формулировка вопроса]"
-   • **Обоснование:** [Какой контекст или смежную тему раскрывает]
+1. **Определи тип анализа:**
+   - Простое распределение → основной вопрос + сегментация
+   - Сравнительный анализ → несколько связанных вопросов
+   - Причинно-следственный → основной + факторы влияния
+   - Сегментация → демография + поведенческие вопросы
 
-4. **[50/100]** "[Исходная формулировка вопроса]"
-   • **Обоснование:** [Чем может быть полезен для понимания]
----
+2. **Построй минимальную цепочку:**
+   - 1-3 основных вопроса по теме
+   - 1-3 вопроса для сегментации (обязательно для аналитики)
+   - При необходимости: 1-3 контекстных вопроса
 
-ВАЖНО: Не объединяй вопросы в один. Один вопрос из списка - одна рекомендация!
-Например, следующие вопросы следует писать отдельно:
-- "[C6_offline] Как часто Вы совершали покупки в этих магазинах в последнем месяце? @ Fix Price"
-- "[C6_offline] Как часто Вы совершали покупки в этих магазинах в последнем месяце? @ Пятерочка"
+3. **Обеспечь логическую связность:**
+   - Вопросы должны дополнять друг друга
+   - Избегай дублирования функций
+   - Приоритет практической применимости
 
----
+## ФОРМАТ ОТВЕТА:
 
-""".strip()
+**Анализ задачи:** [Краткое описание аналитической цели и требуемого типа исследования]
+
+**Выбранные вопросы:**
+
+1. [<релевантность>/100] "<ТОЧНАЯ КОПИЯ ВОПРОСА ИЗ СПИСКА>"
+   Роль: [Основной/Сегментационный/Контекстный]
+   Обоснование: [Зачем этот вопрос для решения задачи]
+
+[Продолжить для всех выбранных вопросов, максимум 10]
+
+## КРИТИЧЕСКИЕ ТРЕБОВАНИЯ:
+- Копируй вопросы ТОЧНО как в списке (без изменений)
+- Включай минимум 1 демографический и 1 географический вопрос для любого анализа
+- Не выбирай больше 10 вопросов (приоритет качества над количеством)
+- Каждый вопрос должен иметь чёткую роль в решении задачи
+"""
 
     def _call():
         logger.debug(f"Calling LLM with model: {rc.model}")
-        logger.debug(f"Prompt: {prompt}")
+        logger.debug(f"Prompt length: {len(prompt)}")
         
         resp = config.client.chat.completions.create(
             model=rc.model,
@@ -76,7 +108,8 @@ def retriever(user_query: str, config: PipelineConfig) -> RetrieverOut:
 
     response_text = retry_call(_call, retries=rc.retries, base_delay=rc.base_delay)
     logger.debug(f"LLM response length: {len(response_text)}")
-    
+
+    # TODO: использовать structured output вместо парсинга
     retriever_struct_out = _parse_retriever_response(response_text)
     
     logger.info(f"Found {len(retriever_struct_out.results)} candidate questions")
@@ -86,7 +119,7 @@ def retriever(user_query: str, config: PipelineConfig) -> RetrieverOut:
         original = qs.question
         qs.question = find_top_match(qs.question, config.all_QS_clean_list)
         if qs.question != original:
-            logger.debug(f"Normalized question: '{original}' -> '{qs.question}'")
+            logger.debug(f"FUZZY-norm question: '{original}' -> '{qs.question}'")
 
     logger.info(f"Retriever completed with {len(retriever_struct_out.results)} questions")
     return retriever_struct_out
@@ -96,30 +129,41 @@ def _parse_retriever_response(text: str) -> RetrieverOut:
     logger.debug("Parsing retriever response")
     
     pattern = r'''
-        \*{0,2}\[(?P<score>\d+)/100\]\*{0,2}\s*
-        ["«]?(?P<question>[^"\n«»]+?)["»]?\s*
-        [•\-*]?\s*\*{0,2}Обоснование\*{0,2}:?\s*
-        (?P<reason>[^\n]+)
+    [\s\*]*
+    (?P<number>\d+)\.?[\s\*]*
+    \[(?P<score>\d+)/100\][\s\*]*
+    "(?P<question>[^"]+)"
+    [\n\s\*]*Роль:[\n\s\*]*
+    (?P<role>[^\n]+?)\s*
+    [\n\s\*]*Обоснование:[\n\s\*]*
+    (?P<reason>[^\n]+)
     '''
 
     matches = re.finditer(pattern, text, re.VERBOSE | re.IGNORECASE)
     
     scored_questions = []
     for match in matches:
-        scored_questions.append(
-            ScoredQuestion(
-                question=match.group("question"),
-                reason=match.group("reason").strip(),
-                relevance=float(match.group("score"))
+        try:
+            scored_questions.append(
+                ScoredQuestion(
+                    question=match.group("question").strip(),
+                    reason=f"[{match.group('role').strip()}] {match.group('reason').strip()}",
+                    relevance=float(match.group("score"))
+                )
             )
-        )
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"Failed to parse question: {e}")
+            continue
     
     if not scored_questions:
-        logger.error(f"Failed to parse any questions from response. Response preview: {text[:500]}")
+        logger.error(f"Failed to parse any questions from response. Response: {text}")
         raise ValueError(
             "Не удалось распарсить ни одного вопроса из ответа LLM. "
             "Проверьте формат ответа модели."
         )
+    
+    # Сортируем по убыванию релевантности
+    scored_questions.sort(key=lambda x: x.relevance, reverse=True)
     
     logger.debug(f"Successfully parsed {len(scored_questions)} questions")
     return RetrieverOut(results=scored_questions)

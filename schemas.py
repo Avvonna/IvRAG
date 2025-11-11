@@ -1,7 +1,8 @@
-from typing import Any, Literal
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 from capability_spec import OperationType
-from pydantic import BaseModel, Field
 
 
 class QuestionInfo(BaseModel):
@@ -24,6 +25,13 @@ class RetrieverOut(BaseModel):
 
     def clean_list(self):
         return [q.question for q in self.results]
+    
+    def __str__(self):
+        lines = []
+        for i, sq in enumerate(self.results, 1):
+            lines.append(f"{i}. [{sq.relevance:.0f}/100] {sq.question}")
+            lines.append(f"\tReason: {sq.reason}")
+        return "\n".join(lines)
 
 
 class PlanStep(BaseModel):
@@ -51,3 +59,15 @@ class PlanStep(BaseModel):
 class PlannerOut(BaseModel):
     analysis: str = Field("", description="Короткий комментарий стратегии")
     steps: list[PlanStep]
+
+    def __str__(self):
+        res = []
+        res.append(f"АНАЛИЗ: {self.analysis}")
+        for i, s in enumerate(self.steps):
+            res.append(f"{i}. [{s.id}] {s.operation}")
+            res.append(f"\tGoal: {s.goal}")
+            res.append(f"\tInputs: {s.inputs}")
+            res.append(f"\tOutputs: {s.outputs}")
+            res.append(f"\tConstraints: {s.constraints}")
+            res.append(f"\tDepends on: {s.depends_on}")
+        return "\n".join(res)
