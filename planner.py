@@ -59,6 +59,7 @@ def planner(
                 model=plc.model,
                 input=[{"role": "user", "content": prompt}],
                 temperature=plc.temperature,
+                extra_body={"provider": {"sort": "latency"}},
                 text_format=PlannerOut
             )
             plan = resp.output_parsed
@@ -109,9 +110,9 @@ def _make_planner_prompt(user_query: str, context: dict, capability_spec: Capabi
 1. Использовать ТОЛЬКО операции из спецификации — не придумывай новые операции
 2. Использовать ТОЛЬКО вопросы из allowed_questions — не меняй формулировки
 3. ИСПОЛЬЗОВАТЬ ТОЛЬКО ДОСТУПНЫЕ ANSWER_VALUES — каждый answer_value ДОЛЖЕН существовать в списке answers для указанного question
-4. ОБЯЗАТЕЛЬНАЯ ПРОВЕРКА — перед указанием answer_values проверь, что они есть в context_json
-5. Соблюдать типы данных — inputs/outputs должны соответствовать спецификации
-6. Определить зависимости — если шаг использует output предыдущего, укажи в depends_on
+4. Соблюдать типы данных — inputs/outputs должны соответствовать спецификации
+5. Определить зависимости — если шаг использует output предыдущего, укажи в depends_on
+6. Названия выводов операций делай осмысленными - результаты будут извлекаться из итогового контекста
 
 ФОРМАТ ОТВЕТА
 Верни план в формате JSON согласно схеме PlannerOut.

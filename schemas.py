@@ -6,8 +6,6 @@ from typing import Any, Type, TypeVar
 
 from pydantic import BaseModel, Field
 
-from capability_spec import OperationType
-
 T = TypeVar('T', bound='SaveableModel')
 
 class SaveableModel(BaseModel):
@@ -49,8 +47,6 @@ class QuestionInfo(BaseModel):
 class ScoredQuestion(BaseModel):
     question: str = Field(..., description="Точная формулировка вопроса из базы")
     reason: str = Field(..., description="Почему этот вопрос полезен для ответа на запрос")
-    relevance: float = Field(..., description="Оценка релевантности 0–100")
-
 
 class RetrieverOut(SaveableModel):
     results: list[ScoredQuestion] = Field(
@@ -64,7 +60,7 @@ class RetrieverOut(SaveableModel):
     def __str__(self):
         lines = []
         for i, sq in enumerate(self.results, 1):
-            lines.append(f"{i}. [{sq.relevance:.0f}/100] '{sq.question}'")
+            lines.append(f"{i}. '{sq.question}'")
             lines.append(f"\tReason: {sq.reason}")
         return "\n".join(lines)
 
@@ -72,7 +68,7 @@ class RetrieverOut(SaveableModel):
 class PlanStep(BaseModel):
     id: str = Field(..., description="Уникальный идентификатор шага (s1, s2, ...)")
     goal: str = Field("", description="Человекочитаемая цель шага")
-    operation: OperationType = Field(..., description="Тип операции из OperationType")
+    operation: str = Field(..., description="Тип операции")
     inputs: dict[str, Any] | list | None = Field(
         default_factory=dict,
         description="Имена входов из контекста или []"

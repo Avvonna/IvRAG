@@ -118,3 +118,18 @@ def clean_model(obj):
     elif isinstance(obj, list):
         return [clean_model(item) for item in obj]
     return obj
+
+def split_dict_into_chunks(d: dict, n_chunks:int):
+    items = list(d.items())
+    chunk_size = len(items) // n_chunks
+    remainder = len(items) % n_chunks
+    
+    chunks = []
+    start = 0
+    
+    for i in range(n_chunks):
+        end = start + chunk_size + (1 if i < remainder else 0)
+        chunks.append(dict(items[start:end]))
+        start = end
+    
+    return chunks
