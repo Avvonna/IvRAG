@@ -6,6 +6,8 @@ from typing import Any, Type, TypeVar
 
 from pydantic import BaseModel, Field
 
+from capability_spec import OperationType
+
 T = TypeVar('T', bound='SaveableModel')
 
 class SaveableModel(BaseModel):
@@ -68,22 +70,22 @@ class RetrieverOut(SaveableModel):
 class PlanStep(BaseModel):
     id: str = Field(..., description="Уникальный идентификатор шага (s1, s2, ...)")
     goal: str = Field("", description="Человекочитаемая цель шага")
-    operation: str = Field(..., description="Тип операции")
+    operation: OperationType = Field(..., description="Тип операции из OperationType")
     inputs: dict[str, Any] | list | None = Field(
         default_factory=dict,
         description="Имена входов из контекста или []"
     )
-    outputs: list[str] | None = Field(
+    outputs: list[str] = Field(
         default_factory=list,
         description="Имена выходов, которые появятся в контексте"
     )
-    constraints: dict[str, Any] | None = Field(
+    constraints: dict[str, Any] = Field(
         default_factory=dict,
-        description="Параметры операции"
+        description="Параметры операции или {}"
     )
-    depends_on: list[str] | None = Field(
+    depends_on: list[str] = Field(
         default_factory=list,
-        description="ID шагов, от которых зависит текущий"
+        description="ID шагов, от которых зависит текущий или []"
     )
 
 
