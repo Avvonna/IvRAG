@@ -54,17 +54,14 @@ def planner(
         """Вызов LLM с structured output"""
         logger.debug(f"Calling LLM with model: {plc.model}")
         
-        try:
-            # Используем structured output через beta API
-            resp = config.client.beta.chat.completions.parse(
+        try:           
+            resp = config.client.responses.parse(
                 model=plc.model,
-                messages=[{"role": "user", "content": prompt}],
+                input=[{"role": "user", "content": prompt}],
                 temperature=plc.temperature,
-                response_format=PlannerOut
+                text_format=PlannerOut
             )
-            
-            # Извлечение распарсенного ответа
-            plan = resp.choices[0].message.parsed
+            plan = resp.output_parsed
             
             if not plan:
                 raise ValueError("LLM вернул пустой ответ")
@@ -118,6 +115,13 @@ def _make_planner_prompt(user_query: str, context: dict, capability_spec: Capabi
 
 ФОРМАТ ОТВЕТА
 Верни план в формате JSON согласно схеме PlannerOut.
+
+ВАЖНО: step IDs должны быть СТРОГО в формате:
+- Первый шаг: "s1" 
+- Второй шаг: "s2"
+- Третий шаг: "s3"
+- И так далее...
+
 """.strip()
 
     return prompt

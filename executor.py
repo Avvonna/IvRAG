@@ -92,8 +92,8 @@ def _topological_sort(steps: list[GroundedStep]) -> list[GroundedStep]:
     
     # Построение графа зависимостей
     step_map = {s.id: s for s in steps}
-    in_degree = defaultdict(int)  # количество входящих рёбер
-    adj_list = defaultdict(list)   # список смежности
+    in_degree = defaultdict(int)    # количество входящих рёбер
+    adj_list = defaultdict(list)    # список смежности
     
     # Инициализация
     for step in steps:

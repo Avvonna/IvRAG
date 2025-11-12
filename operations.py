@@ -103,6 +103,7 @@ def op_FILTER(
 
     if len(filtered_respondents) == 0:
         logger.error("Пустой результат фильтрации")
+        raise GroundingError
     
     return {"filtered_dataset": out}
 

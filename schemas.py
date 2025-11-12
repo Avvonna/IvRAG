@@ -1,9 +1,44 @@
-from typing import Any
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Type, TypeVar
 
 from pydantic import BaseModel, Field
 
 from capability_spec import OperationType
 
+T = TypeVar('T', bound='SaveableModel')
+
+class SaveableModel(BaseModel):
+    """Базовый класс для моделей с возможностью сохранения/загрузки"""
+    
+    @classmethod
+    def load(cls: Type[T], path: str | Path) -> T:
+        path = Path(path) if isinstance(path, str) else path
+        
+        if not path.exists():
+            raise FileNotFoundError(f"Файл не найден: {path}")
+        
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Ошибка парсинга JSON в файле {path}: {e}")
+        
+        try:
+            return cls.model_validate(data)
+        except Exception as e:
+            raise ValueError(f"Ошибка валидации данных в файле {path}: {e}")
+    
+    def save(self, path: str | Path):
+        path = Path(path) if isinstance(path, str) else path
+        
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(self.model_dump(), f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            raise ValueError(f"Ошибка сохранения в файл {path}: {e}")
 
 class QuestionInfo(BaseModel):
     id: str
@@ -17,7 +52,7 @@ class ScoredQuestion(BaseModel):
     relevance: float = Field(..., description="Оценка релевантности 0–100")
 
 
-class RetrieverOut(BaseModel):
+class RetrieverOut(SaveableModel):
     results: list[ScoredQuestion] = Field(
         default_factory=list,
         description="Список релевантных вопросов с объяснениями и оценками"
@@ -29,7 +64,7 @@ class RetrieverOut(BaseModel):
     def __str__(self):
         lines = []
         for i, sq in enumerate(self.results, 1):
-            lines.append(f"{i}. [{sq.relevance:.0f}/100] {sq.question}")
+            lines.append(f"{i}. [{sq.relevance:.0f}/100] '{sq.question}'")
             lines.append(f"\tReason: {sq.reason}")
         return "\n".join(lines)
 
@@ -40,7 +75,7 @@ class PlanStep(BaseModel):
     operation: OperationType = Field(..., description="Тип операции из OperationType")
     inputs: dict[str, Any] | list | None = Field(
         default_factory=dict,
-        description="Именованные входы ИЛИ []"
+        description="Имена входов из контекста или []"
     )
     outputs: list[str] | None = Field(
         default_factory=list,
@@ -56,7 +91,7 @@ class PlanStep(BaseModel):
     )
 
 
-class PlannerOut(BaseModel):
+class PlannerOut(SaveableModel):
     analysis: str = Field("", description="Короткий комментарий стратегии")
     steps: list[PlanStep]
 
@@ -71,3 +106,4 @@ class PlannerOut(BaseModel):
             res.append(f"\tConstraints: {s.constraints}")
             res.append(f"\tDepends on: {s.depends_on}")
         return "\n".join(res)
+   

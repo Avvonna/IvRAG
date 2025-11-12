@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from capability_spec import OperationType
-from config import PipelineConfig
 from operations import OP_REGISTRY, GroundingError
 from schemas import PlannerOut
 
@@ -29,8 +28,20 @@ class GrounderOut:
     analysis: str
     steps: list[GroundedStep]
 
+    def __str__(self):
+        res = []
+        res.append(f"АНАЛИЗ: {self.analysis}")
+        for i, s in enumerate(self.steps):
+            res.append(f"{i}. [{s.id}] {s.op_type}")
+            res.append(f"\tGoal: {s.goal}")
+            res.append(f"\tInputs: {s.inputs}")
+            res.append(f"\tOutputs: {s.outputs}")
+            res.append(f"\tConstraints: {s.constraints}")
+            res.append(f"\tDepends on: {s.depends_on}")
+        return "\n".join(res)
 
-def grounder(plan: PlannerOut, config: PipelineConfig) -> GrounderOut:
+
+def grounder(plan: PlannerOut) -> GrounderOut:
     logger.info("Starting grounder")
     
     analysis = plan.analysis

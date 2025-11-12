@@ -73,22 +73,48 @@ def find_top_match(query, choices) -> str:
     )[0]
     return match_[0]
 
-def remove_defs_and_refs(schema: dict):
-    schema = schema.copy()
-    defs = schema.pop('$defs', {})
-
-    def resolve(subschema):
-        if isinstance(subschema, dict):
-            ref = subschema.get('$ref', None)
-            if ref:
-                _def = ref.split('/')[-1]
-                return resolve(defs[_def])
-            return {
-                _def: resolve(_ref)
-                for _def, _ref in subschema.items()
-            }
-        if isinstance(subschema, list):
-            return [resolve(ss) for ss in subschema]
-        return subschema
+def resolve_refs(schema: dict) -> dict:
+    """
+    Разворачивает все $ref в JSON Schema, делая схему полностью inline.
+    Удаляет $defs после разворачивания.
+    """
+    import copy
     
-    return resolve(schema)
+    schema = copy.deepcopy(schema)
+    defs = schema.pop('$defs', {})
+    
+    def replace_refs(obj):
+        if isinstance(obj, dict):
+            if '$ref' in obj:
+                # Извлекаем имя из $ref (например, '#/$defs/PlanStep' или 'PlanStep')
+                ref_path = obj['$ref']
+                ref_name = ref_path.split('/')[-1] if '/' in ref_path else ref_path
+                
+                if ref_name in defs:
+                    # Заменяем $ref на полное определение
+                    resolved = copy.deepcopy(defs[ref_name])
+                    # Рекурсивно обрабатываем вложенные $ref
+                    return replace_refs(resolved)
+                else:
+                    return obj
+            else:
+                # Рекурсивно обрабатываем все ключи
+                return {k: replace_refs(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [replace_refs(item) for item in obj]
+        else:
+            return obj
+    
+    return replace_refs(schema)
+
+def clean_model(obj):
+    """ Удаляет из схемы title и additionalProperties"""
+    if isinstance(obj, dict):
+        return {
+            k: clean_model(v) 
+            for k, v in obj.items() 
+            if k not in ['title', 'additionalProperties']
+        }
+    elif isinstance(obj, list):
+        return [clean_model(item) for item in obj]
+    return obj
