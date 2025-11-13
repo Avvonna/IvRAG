@@ -12,6 +12,13 @@ T = TypeVar('T', bound='SaveableModel')
 
 class SaveableModel(BaseModel):
     """Базовый класс для моделей с возможностью сохранения/загрузки"""
+
+    reasoning: str = Field("", description="Цепочка рассуждений модели")
+
+    def model_dump_json(self, **kwargs):
+        if 'exclude' not in kwargs:
+            kwargs['exclude'] = {'reasoning'}
+        return super().model_dump_json(**kwargs)
     
     @classmethod
     def load(cls: Type[T], path: str | Path) -> T:
@@ -40,11 +47,14 @@ class SaveableModel(BaseModel):
         except Exception as e:
             raise ValueError(f"Ошибка сохранения в файл {path}: {e}")
 
+### Формат вопроса в каталоге
+
 class QuestionInfo(BaseModel):
     id: str
     waves: list[str] = Field(default_factory=list)
     answers: list[str] = Field(default_factory=list)
 
+### Retriever
 
 class ScoredQuestion(BaseModel):
     question: str = Field(..., description="Точная формулировка вопроса из базы")
@@ -66,6 +76,18 @@ class RetrieverOut(SaveableModel):
             lines.append(f"\tReason: {sq.reason}")
         return "\n".join(lines)
 
+### Dreamer
+
+class DreamerOut(SaveableModel):
+    analysis: str
+
+    def __str__(self):
+        res = ["#"*20, "АНАЛИЗ", "#"*20, self.analysis, "\n"]
+        if self.reasoning:
+            res += ["#"*20, "РАССУЖДЕНИЯ", "#"*20, self.reasoning]
+        return "\n".join(res)
+
+### Planner
 
 class PlanStep(BaseModel):
     id: str = Field(..., description="Уникальный идентификатор шага (s1, s2, ...)")
@@ -87,7 +109,6 @@ class PlanStep(BaseModel):
         default_factory=list,
         description="ID шагов, от которых зависит текущий или []"
     )
-
 
 class PlannerOut(SaveableModel):
     analysis: str = Field("", description="Короткий комментарий стратегии")

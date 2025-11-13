@@ -9,9 +9,6 @@ from schemas import QuestionInfo
 class QuestionCatalog(BaseModel):
     questions: list[QuestionInfo] = Field(default_factory=list)
 
-    def allowed_question_ids(self) -> list[str]:
-        return [q.id for q in self.questions]
-
     def as_value_catalog(self, limit: int = 30) -> dict[str, dict]:
         def clip(xs: list[str]) -> list[str]:
             return xs[:limit] if limit and len(xs) > limit else xs
@@ -23,6 +20,14 @@ class QuestionCatalog(BaseModel):
             }
             for q in self.questions
         }
+
+    def filter(self, selected_questions: list[str]):
+        return QuestionCatalog(
+            questions=[
+                q for q in self.questions 
+                if q.id in selected_questions
+            ]
+        )
 
     @classmethod
     def from_df(cls, qs_info_df: pd.DataFrame) -> QuestionCatalog:

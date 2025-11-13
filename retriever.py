@@ -12,24 +12,74 @@ logger = logging.getLogger(__name__)
 def retriever(
     user_query: str,
     config: PipelineConfig,
-    n_blocks: int = 2
 ) -> RetrieverOut:
     logger.info(f"Starting retriever for query: {user_query[:100]}...")
-    
-    if not config.all_QS_clean_list:
-        logger.warning("Empty question list in config")
-        return RetrieverOut(results=[])
-
-    # questions_block = "\n".join(
-    #     f"{i+1}. {q}" for i, q in enumerate(config.all_QS_info_dict)
-    # )
-    questions_blocks = config.catalog.as_value_catalog()
-    questions_blocks = split_dict_into_chunks(questions_blocks, n_blocks)
 
     rc = config.retriever_config
 
-    prompt_template = Template(f"""
+    if not config.all_QS_info_dict:
+        logger.warning("No questions in config. Returning empty results.")
+        return RetrieverOut(results=[])
 
+    questions_blocks = split_dict_into_chunks(config.catalog.as_value_catalog(), rc.n_questions_splits)
+    prompt_template = _make_retriever_prompt(user_query)
+
+    contents = []
+    reasons = []
+
+    def _call(prompt):
+        logger.debug(f"Prompt length: {len(prompt)}")
+        
+        resp = config.client.chat.completions.create(
+            model=rc.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=rc.temperature,
+        )
+        assert resp.choices[0].message, "Empty retriever message"
+        return resp.choices[0].message
+
+    for i, block in enumerate(questions_blocks, start=1):
+        logger.debug(f"{i}/{len(questions_blocks)} part of questions...")
+        prompt = prompt_template.substitute({"q_block": block})
+        msg = retry_call(lambda: _call(prompt), retries=rc.retries, base_delay=rc.base_delay)
+
+        if rc.reasoning_effort:
+            try:
+                if msg.reasoning_details and len(msg.reasoning_details) > 0:
+                    reasons += ["#" * 20, f"Часть {i}", "#" * 20, msg.reasoning_details[0]["text"], "\n"]
+                else:
+                    logger.warning(f"No reasoning details found for block {i}")
+            except (AttributeError, IndexError) as e:
+                logger.warning(f"Error extracting reasoning for block {i}: {e}")
+
+        contents += [msg.content]
+    
+    res = "\n".join(contents)
+    retriever_out = _parse_retriever_response(res)
+
+    if reasons:
+        retriever_out.reasoning = "\n".join(reasons)
+
+    norm_questions = []
+    for qs in retriever_out.results:
+        original_question = qs.question
+        matched_question = find_top_match(original_question, config.all_QS_info_dict.keys())
+        qs.question = matched_question
+
+        if qs.question != original_question:
+            logger.debug(f"FUZZY-norm question: '{original_question}' -> '{qs.question}'")
+        norm_questions.append(qs)
+
+    retriever_out.results = norm_questions
+
+    logger.info(f"Retriever completed with {len(retriever_out.results)} questions")
+
+    config.relevant_questions = retriever_out.clean_list()
+
+    return retriever_out
+
+def _make_retriever_prompt(user_query: str) -> Template:
+    return Template(f"""
 **ЦЕЛЬ:** Найти минимальный набор вопросов для решения аналитической задачи пользователя.
 **ЗАПРОС:** {user_query}
 
@@ -44,55 +94,14 @@ $q_block
 
 1. "<ТОЧНАЯ КОПИЯ ВОПРОСА ИЗ СПИСКА>"
    Обоснование: [Зачем этот вопрос для решения задачи]
-=
-
+2. "<ДРУГОЙ ТОЧНЫЙ ВОПРОС ИЗ СПИСКА>"
+   Обоснование: [Зачем этот вопрос для решения задачи]
+...
 """)
-    def _blocks_iter():
-        logger.debug(f"Calling LLM with model: {rc.model}")
-        res = []
 
-        for i, block in enumerate(questions_blocks, start=1):
-            logger.debug(f"{i}/{len(questions_blocks)} part of questions...")
-            prompt = prompt_template.substitute({"q_block": block})
-            response_text = retry_call(lambda: _call(prompt), retries=rc.retries, base_delay=rc.base_delay)
-            logger.debug(f"LLM response length: {len(response_text)}")
-
-            # retriever_struct_out = _parse_retriever_response(response_text)
-            res += [response_text]
-        
-        # logger.info(f"Found {len(res.results)} candidate questions")
-        return res
-    
-    def _call(prompt):
-        logger.debug(f"Prompt length: {len(prompt)}")
-        
-        resp = config.client.chat.completions.create(
-            model=rc.model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=rc.temperature,
-        )
-        assert resp.choices[0].message.content, "Empty retriever response"
-        return resp.choices[0].message.content.strip()
-    
-    res = retry_call(_blocks_iter, retries=rc.retries, base_delay=rc.base_delay)
-    res = "\n".join(res)
-    res = _parse_retriever_response(res)
-
-    # Нормализуем названия вопросов через fuzzy matching
-    for qs in res.results:
-        original = qs.question
-        qs.question = find_top_match(qs.question, config.all_QS_clean_list)
-        if qs.question != original:
-            logger.debug(f"FUZZY-norm question: '{original}' -> '{qs.question}'")
-
-    logger.info(f"Retriever completed with {len(res.results)} questions")
-
-    return res
-
-
-def _parse_retriever_response(text: str) -> RetrieverOut:
+def _parse_retriever_response(analysis: str) -> RetrieverOut:
     logger.debug("Parsing retriever response")
-    
+
     pattern = r'''
     [\s\*]*
     (?P<number>\d+)\.?[\s\*]*
@@ -101,27 +110,38 @@ def _parse_retriever_response(text: str) -> RetrieverOut:
     (?P<reason>[^\n]+)
     '''
 
-    matches = re.finditer(pattern, text, re.VERBOSE | re.IGNORECASE)
-    
+    matches = re.finditer(pattern, analysis, re.VERBOSE | re.IGNORECASE)
     scored_questions = []
-    for match in matches:
+
+    for i, match in enumerate(matches, start=1):
         try:
+            question_text = match.group("question").strip()
+            reason_text = match.group('reason').strip()
+
+            if not question_text:
+                logger.warning(f"Parsed empty question for match {i}. Skipping.")
+                continue
+            if not reason_text:
+                logger.warning(f"Parsed empty reason for question '{question_text}'. Skipping.")
+                continue
+
             scored_questions.append(
                 ScoredQuestion(
-                    question=match.group("question").strip(),
-                    reason=match.group('reason').strip(),
+                    question=question_text,
+                    reason=reason_text,
                 )
             )
+            logger.debug(f"Parsed question: '{question_text}'")
         except (ValueError, AttributeError) as e:
-            logger.warning(f"Failed to parse question: {e}")
+            logger.error(f"Failed to parse question from match {i}: {e}. Raw match: {match.group(0)}")
             continue
-    
+
     if not scored_questions:
-        logger.error(f"Failed to parse any questions from response. Response: {text}")
+        logger.error(f"Failed to parse any questions from response. Full analysis: \n{analysis}")
         raise ValueError(
             "Не удалось распарсить ни одного вопроса из ответа LLM. "
             "Проверьте формат ответа модели."
         )
-    
+
     logger.debug(f"Successfully parsed {len(scored_questions)} questions")
     return RetrieverOut(results=scored_questions)
