@@ -1,12 +1,44 @@
 import logging
+import os
 import time
+from pathlib import Path
 from typing import Callable, Iterable, Optional, TypeVar
 
+import dotenv
 import pandas as pd
 from openai import RateLimitError
 from rapidfuzz import fuzz, process
 
 logger = logging.getLogger(__name__)
+
+def setup_environment():
+    """Загружает переменные окружения"""
+    dotenv.load_dotenv()
+    
+    api_key = os.getenv("OR_API_KEY")
+    db_path = os.getenv("DB_PATH")
+    
+    if not api_key:
+        raise ValueError("OR_API_KEY not found in environment")
+    if not db_path:
+        raise ValueError("DB_PATH not found in environment")
+    
+    logger.info(f"Environment loaded: DB_PATH={db_path}")
+    return api_key, db_path
+
+
+def load_data(db_path: str, wave_filter: list[str] = ["2025-03"]) -> pd.DataFrame:
+    """Загружает данные из parquet файла + фильтр по волнам """
+    logger.info(f"Loading data from {db_path}")
+    
+    df = pd.read_parquet(Path(db_path), engine="fastparquet")
+    logger.info(f"Full dataset shape: {df.shape}")
+    
+    if "wave" in df.columns and wave_filter:
+        df = df[df["wave"].isin(wave_filter)]
+        logger.info(f"Filtered by waves: {wave_filter}, new shape: {df.shape}")
+    
+    return df
 
 T = TypeVar('T')
 
