@@ -1,8 +1,9 @@
 import logging
 import os
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import Callable, Iterable, Optional, TypeVar
+from typing import Callable, Iterable, Literal, Optional, TypeVar
 
 import dotenv
 import pandas as pd
@@ -26,6 +27,51 @@ def setup_environment():
     logger.info(f"Environment loaded: DB_PATH={db_path}")
     return api_key, db_path
 
+def setup_logging(
+    mode: Literal['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'] | None = 'NOTSET',
+    log_dir: str = "logs",
+    enable_console: bool = True
+):
+    os.makedirs(log_dir, exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    run_dir = os.path.join(log_dir, f"run_{timestamp}")
+    os.makedirs(run_dir, exist_ok=True)
+    log_filepath = os.path.join(run_dir, "log.txt")
+    
+    # Создаем форматтер
+    formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # Настраиваем root logger вручную
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.ERROR)
+    
+    # Очищаем существующие обработчики
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+    
+    # Файловый обработчик
+    file_handler = logging.FileHandler(log_filepath, encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+    
+    # Консольный обработчик
+    if enable_console:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        root_logger.addHandler(console_handler)
+    
+    # Наши кастомные логгеры
+    allowed_loggers = ['retriever', 'dreamer', 'planner', 'grounder', 'executor']
+    for logger_name in allowed_loggers:
+        logging.getLogger(logger_name).setLevel(mode)
+
+    print(f"Logging to file: {log_filepath}")
+    return run_dir
 
 def load_data(db_path: str, wave_filter: list[str] = ["2025-03"]) -> pd.DataFrame:
     """Загружает данные из parquet файла + фильтр по волнам """
