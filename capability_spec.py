@@ -8,6 +8,8 @@ class OperationType(str, Enum):
     LOAD_DATA = "LOAD_DATA"
     FILTER = "FILTER"
     PIVOT = "PIVOT"
+    INTERSECT = "INTERSECT"
+    UNION = "UNION"
 
 
 @dataclass
@@ -41,13 +43,15 @@ class CapabilitySpec:
 
     def _infer_category(self, op_type: OperationType) -> str:
         name = op_type.value
-        if "LOAD" in name:
-            return "Data Loading"
-        elif "FILTER" in name:
-            return "Filtering"
-        elif "PIVOT" in name:
-            return "Aggregation"
-        return "Other"
+        match name:
+            case "LOAD":
+                return "Data Loading"
+            case "FILTER" | "INTERSECT" | "UNION":
+                return "Filtering"
+            case "PIVOT":
+                return "Aggregation"
+            case _:
+                return "Other"
 
     def list_operations(self, category: str | None = None) -> list[OperationSpec]:
         if category is None:
@@ -91,14 +95,45 @@ class CapabilitySpec:
                     "logic": "include"
                 }
             ),
+
+            OperationSpec(
+                name=OperationType.INTERSECT,
+                description="Найти пересечение респондентов из нескольких датасетов (логическое И) и склеить их данные",
+                inputs={
+                    "datasets": "Список датасетов для пересечения (минимум 2)",
+                    "dataset_names": "Опциональные имена датасетов для отладки"
+                },
+                outputs=["intersected_dataset"],
+                constraints={
+                    "min_datasets": "At least 2 datasets required"
+                },
+                example={
+                    "datasets": ["filtered_dataset_1", "filtered_dataset_2"]
+                }
+            ),
+            
+            OperationSpec(
+                name=OperationType.UNION,
+                description="Найти объединение респондентов из нескольких датасетов (логическое ИЛИ) и склеить их данные",
+                inputs={
+                    "datasets": "Список датасетов для объединения (минимум 2)"
+                },
+                outputs=["union_dataset"],
+                constraints={
+                    "min_datasets": "At least 2 datasets required"
+                },
+                example={
+                    "datasets": ["filtered_dataset_1", "filtered_dataset_2", "filtered_dataset_3"]
+                }
+            ),
             
             # ==================== AGGREGATION ====================
             OperationSpec(
                 name=OperationType.PIVOT,
-                description="Вычислить распределение ответов на вопрос",
+                description="Вычислить распределение ответов на вопрос. В колонках - волны опросов, в ячейках считается число уникальных респондентов.",
                 inputs={
                     "dataset": "Датасет (может быть отфильтрованным)",
-                    "question": "Вопрос из allowed_questions"
+                    "question": "Вопрос ТОЧНО из allowed_questions"
                 },
                 outputs=["pivot"],
                 constraints={
@@ -106,7 +141,7 @@ class CapabilitySpec:
                 },
                 example={
                     "dataset": "filtered_dataset",
-                    "question": "В каких магазинах Вы делаете покупки?"
+                    "question": "[Q115] В каких магазинах Вы делаете покупки?"
                 }
             )
         ]

@@ -13,7 +13,7 @@ def retriever(
     user_query: str,
     config: PipelineConfig,
 ) -> RetrieverOut:
-    logger.info(f"Starting retriever for query: {user_query[:100]}...")
+    logger.info(f"Starting retriever for query: {user_query}")
 
     rc = config.retriever_config
 
@@ -28,6 +28,7 @@ def retriever(
     reasons = []
 
     def _call(prompt):
+        logger.debug(f"Calling LLM with model: {rc.model}")
         logger.debug(f"Prompt length: {len(prompt)}")
         
         resp = config.client.chat.completions.create(
@@ -78,7 +79,12 @@ def retriever(
 
 def _make_retriever_prompt(user_query: str) -> Template:
     return Template(f"""
-**ЦЕЛЬ:** Найти набор вопросов необходимый для решения аналитической задачи пользователя. При поиске смотри также на варианты ответов.
+**ЦЕЛЬ:** Найти набор вопросов необходимый для решения аналитической задачи пользователя.
+
+ВАЖНО:
+- При поиске смотри также на варианты ответов
+- Не объединяй вопросы: если есть несколько схожих вопросов, пиши их отдельно
+
 **ЗАПРОС:** {user_query}
 
 **ДОСТУПНЫЕ ВОПРОСЫ:**

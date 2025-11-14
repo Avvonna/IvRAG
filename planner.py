@@ -52,8 +52,8 @@ def planner(
     
     plan = retry_call(_call, retries=config.planner_config.retries, base_delay=config.planner_config.base_delay)
     
-    logger.info(f"Planner completed: {len(plan.steps)} steps generated")
     logger.debug(f"Planner returned: {plan}")
+    logger.info(f"Planner completed: {len(plan.steps)} steps generated")
     return plan
 
 
@@ -96,7 +96,7 @@ def _make_planner_prompt(
 
 ФОРМАТ ОТВЕТА
 Верни план в формате JSON согласно схеме PlannerOut.
-Если анализ нельзя выполнить с помощью данного тебе функционала - верни пустой план.
+Если анализ нельзя выполнить с помощью данного тебе функционала - верни план только с LOAD_DATA.
 
 ВАЖНО: step IDs должны быть СТРОГО в формате:
 - Первый шаг: "s1" 

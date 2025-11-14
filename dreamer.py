@@ -16,6 +16,7 @@ def dreamer(
     prompt = _make_dreamer_prompt(user_query, config)
 
     def _call(prompt):
+        logger.debug(f"Calling LLM with model: {dc.model}")
         logger.debug(f"Prompt length: {len(prompt)}")
         
         resp = config.client.chat.completions.create(
@@ -43,7 +44,8 @@ def _make_dreamer_prompt(user_query: str, config: PipelineConfig) -> str:
     # TODO: протестировать различные промпты
 
     return f"""
-В твоем распоряжении есть результаты опроса населения. Твоя задача построить возможный план анализа для ответа на вопрос пользователя
+В твоем распоряжении есть результаты опроса населения. Твоя задача построить возможный план анализа для ответа на вопрос пользователя.
+Писать код и предлагать визуализации не надо - только план аналитики.
 
 Запрос пользователя: {user_query}
 

@@ -107,6 +107,107 @@ def op_FILTER(
     
     return {"filtered_dataset": out}
 
+def op_INTERSECT(
+    *,
+    datasets: list[pd.DataFrame],
+    **_
+) -> dict[str, Any]:
+    """
+    Находит пересечение респондентов из нескольких датасетов (логическое И)
+    и склеивает их данные
+    
+    Args:
+        datasets: Список датасетов для пересечения и склейки
+        dataset_names: Опциональные имена датасетов для логирования
+        
+    Returns:
+        dict с ключом "intersected_dataset"
+    """
+    logger.info(f"Finding intersection and concatenating {len(datasets)} datasets")
+    
+    # Валидация входных данных
+    if len(datasets) < 2:
+        raise GroundingError("Для операции INTERSECT требуется минимум 2 датасета")
+    
+    # Проверяем наличие необходимых колонок
+    for i, ds in enumerate(datasets):
+        if "respondent_uid" not in ds.columns:
+            name = f"{datasets[i]=}".split('=')[0]
+            raise GroundingError(f"Датасет '{name}' не содержит колонку 'respondent_uid'")
+    
+    # Получаем множества респондентов из каждого датасета
+    respondent_sets = []
+    for i, ds in enumerate(datasets):
+        respondents = set(ds["respondent_uid"].unique())
+        name = f"{datasets[i]=}".split('=')[0]
+        logger.info(f"Dataset '{name}': {len(respondents)} уникальных респондентов")
+        respondent_sets.append(respondents)
+    
+    # Находим пересечение
+    common_respondents = set.intersection(*respondent_sets)
+    logger.info(f"Common respondents found: {len(common_respondents)}")
+    
+    if len(common_respondents) == 0:
+        logger.warning("Пересечение датасетов пустое - нет общих респондентов")
+        # Возвращаем пустой датафрейм с той же структурой
+        empty_result = datasets[0][datasets[0]["respondent_uid"].isin([])].copy()
+        return {"intersected_dataset": empty_result}
+    
+    # Склеиваем данные всех датасетов, фильтруя только общих респондентов
+    filtered_datasets = []
+    for i, ds in enumerate(datasets):
+        filtered_ds = ds[ds["respondent_uid"].isin(common_respondents)].copy()
+        filtered_datasets.append(filtered_ds)
+    
+    # Конкатенируем все отфильтрованные датасеты
+    result_dataset = pd.concat(filtered_datasets, ignore_index=True)
+    
+    logger.info(f"Intersection result: {len(result_dataset)} rows after concatenation")
+    logger.info(f"Unique respondents in result: {result_dataset['respondent_uid'].nunique()}")
+    
+    return {"intersected_dataset": result_dataset}
+
+def op_UNION(
+    *,
+    datasets: list[pd.DataFrame],
+    **_
+) -> dict[str, Any]:
+    """
+    Находит объединение респондентов из нескольких датасетов (логическое ИЛИ)
+    и склеивает их данные
+    
+    Args:
+        datasets: Список датасетов для объединения и склейки
+        dataset_names: Опциональные имена датасетов для логирования
+        remove_duplicates: Удалять дубликаты строк
+        
+    Returns:
+        dict с ключом "union_dataset"
+    """
+    logger.info(f"Finding union and concatenating {len(datasets)} datasets")
+    
+    # Валидация входных данных
+    if len(datasets) < 2:
+        raise GroundingError("Для операции UNION требуется минимум 2 датасета")
+    
+    # Проверяем наличие необходимых колонок
+    for i, ds in enumerate(datasets):
+        if "respondent_uid" not in ds.columns:
+            name = f"{datasets[i]=}".split('=')[0]
+            raise GroundingError(f"Датасет '{name}' не содержит колонку 'respondent_uid'")
+    
+    # Логируем статистику по датасетам
+    for i, ds in enumerate(datasets):
+        name = f"{datasets[i]=}".split('=')[0]
+        logger.info(f"Dataset '{name}': {len(ds)} строк, {ds['respondent_uid'].nunique()} уникальных респондентов")
+    
+    # Простая склейка всех датасетов
+    result_dataset = pd.concat(datasets, ignore_index=True)
+    
+    logger.info(f"Union result: {len(result_dataset)} rows after concatenation")
+    logger.info(f"Unique respondents in result: {result_dataset['respondent_uid'].nunique()}")
+    
+    return {"union_dataset": result_dataset}
 
 def op_PIVOT(
     *,
@@ -154,5 +255,7 @@ def op_PIVOT(
 OP_REGISTRY: dict[OperationType, Callable[..., dict[str, Any]]] = {
     OperationType.LOAD_DATA: op_LOAD_DATA,
     OperationType.FILTER: op_FILTER,
+    OperationType.INTERSECT: op_INTERSECT,
+    OperationType.UNION: op_UNION,
     OperationType.PIVOT: op_PIVOT
 }

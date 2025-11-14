@@ -37,7 +37,9 @@ def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> dict[st
                     f"Ожидается dict[str, Any]"
                 )
             
-            logger.debug(f"Step {step.id} produced: {list(result.keys())}")
+            logger.debug(f"Step {step.id} produced keys: {list(result.keys())}")
+            for key, value in result.items():
+                logger.debug(f"  {key}: {_safe_repr(value)}")
             
             # Обновление контекста
             runtime_ctx.update(result)
@@ -128,6 +130,22 @@ def _topological_sort(steps: list[GroundedStep]) -> list[GroundedStep]:
     logger.debug(f"Topological sort completed: {[s.id for s in sorted_steps]}")
     return sorted_steps
 
+def _safe_repr(value: Any, max_len: int = 100) -> str:
+    """Безопасное представление значения для логов"""
+    try:
+        if hasattr(value, 'shape'):
+            # Для pandas/numpy объектов
+            return f"{type(value).__name__}(shape={getattr(value, 'shape', 'unknown')})"
+        elif hasattr(value, '__len__') and len(value) > 10:
+            # Для больших коллекций
+            return f"{type(value).__name__}(len={len(value)})"
+        else:
+            repr_str = repr(value)
+            if len(repr_str) > max_len:
+                return repr_str[:max_len] + "..."
+            return repr_str
+    except Exception:
+        return f"{type(value).__name__}(<unrepresentable>)"
 
 def _materialize_inputs(step: GroundedStep, ctx: dict[str, Any]) -> dict[str, Any]:
     """
@@ -135,9 +153,10 @@ def _materialize_inputs(step: GroundedStep, ctx: dict[str, Any]) -> dict[str, An
     
     Правила материализации:
     1. Если значение - строка и она есть в контексте → берём значение из контекста
-    2. Иначе используем значение как есть (литерал)
-    3. Constraints добавляются как параметры
-    4. dataset добавляется автоматически, если есть в контексте
+    2. Если значение - список строк → рекурсивно материализуем каждый элемент
+    3. Иначе используем значение как есть (литерал)
+    4. Constraints добавляются как параметры
+    5. dataset добавляется автоматически, если есть в контексте
     
     Args:
         step: Шаг для выполнения
@@ -148,16 +167,25 @@ def _materialize_inputs(step: GroundedStep, ctx: dict[str, Any]) -> dict[str, An
     """
     kwargs: dict[str, Any] = {}
     
-    # Материализация явных входов
-    for param_name, ref in (step.inputs or {}).items():
-        if isinstance(ref, str) and ref in ctx:
+    def _resolve_value(value: Any) -> Any:
+        """Рекурсивно разрешает значение из контекста"""
+        if isinstance(value, str) and value in ctx:
             # Разрешаем ссылку на переменную в контексте
-            kwargs[param_name] = ctx[ref]
-            logger.debug(f"  {param_name} = ctx['{ref}'] ({type(ctx[ref]).__name__})")
+            resolved = ctx[value]
+            logger.debug(f"    resolved '{value}' -> {type(resolved).__name__}")
+            return resolved
+        elif isinstance(value, list):
+            # Рекурсивно разрешаем каждый элемент списка
+            return [_resolve_value(item) for item in value]
         else:
             # Используем как литеральное значение
-            kwargs[param_name] = ref
-            logger.debug(f"  {param_name} = {ref!r} (literal)")
+            return value
+    
+    # Материализация явных входов
+    for param_name, ref in (step.inputs or {}).items():
+        resolved_value = _resolve_value(ref)
+        kwargs[param_name] = resolved_value
+        logger.debug(f"  {param_name} = {_safe_repr(resolved_value)}")
     
     # Материализация constraints
     for key, value in (step.constraints or {}).items():
@@ -165,12 +193,9 @@ def _materialize_inputs(step: GroundedStep, ctx: dict[str, Any]) -> dict[str, An
             logger.warning(f"Constraint '{key}' conflicts with input, skipping")
             continue
             
-        if isinstance(value, str) and value in ctx:
-            kwargs[key] = ctx[value]
-            logger.debug(f"  {key} = ctx['{value}'] (constraint)")
-        else:
-            kwargs[key] = value
-            logger.debug(f"  {key} = {value!r} (constraint literal)")
+        resolved_value = _resolve_value(value)
+        kwargs[key] = resolved_value
+        logger.debug(f"  {key} = {_safe_repr(resolved_value)} (constraint)")
     
     # Автоматическое добавление dataset если нужно
     if "dataset" in ctx and "dataset" not in kwargs:
