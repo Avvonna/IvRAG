@@ -24,7 +24,7 @@ def retriever(
     questions_blocks = split_dict_into_chunks(config.catalog.as_value_catalog(), rc.n_questions_splits)
     prompt_template = _make_retriever_prompt(user_query)
 
-    contents = []
+    retriever_out = RetrieverOut(results=[])
     reasons = []
 
     def _call(prompt):
@@ -34,6 +34,7 @@ def retriever(
             model=rc.model,
             messages=[{"role": "user", "content": prompt}],
             temperature=rc.temperature,
+            reasoning_effort=rc.reasoning_effort
         )
         assert resp.choices[0].message, "Empty retriever message"
         return resp.choices[0].message
@@ -52,10 +53,7 @@ def retriever(
             except (AttributeError, IndexError) as e:
                 logger.warning(f"Error extracting reasoning for block {i}: {e}")
 
-        contents += [msg.content]
-    
-    res = "\n".join(contents)
-    retriever_out = _parse_retriever_response(res)
+        retriever_out.results += _parse_retriever_response(msg.content).results
 
     if reasons:
         retriever_out.reasoning = "\n".join(reasons)
@@ -80,7 +78,7 @@ def retriever(
 
 def _make_retriever_prompt(user_query: str) -> Template:
     return Template(f"""
-**ЦЕЛЬ:** Найти минимальный набор вопросов для решения аналитической задачи пользователя.
+**ЦЕЛЬ:** Найти набор вопросов необходимый для решения аналитической задачи пользователя. При поиске смотри также на варианты ответов.
 **ЗАПРОС:** {user_query}
 
 **ДОСТУПНЫЕ ВОПРОСЫ:**
@@ -102,20 +100,25 @@ $q_block
 def _parse_retriever_response(analysis: str) -> RetrieverOut:
     logger.debug("Parsing retriever response")
 
-    pattern = r'''
-    [\s\*]*
-    (?P<number>\d+)\.?[\s\*]*
-    "(?P<question>[^"]+)"
-    [\n\s\*]*Обоснование:[\n\s\*]*
-    (?P<reason>[^\n]+)
-    '''
+    pattern = re.compile(
+        r"""(?ms)
+        \d+\.\s*
+        (?:
+            "(?P<q1>[^"\n]+)"
+            |
+            \*\*(?P<q2>.*?)\*\*
+        )
+        .*?
+        Обоснование\s*:\s*
+        (?P<reason>.+?)(?=\n|\Z)
+        """, re.VERBOSE
+    )
 
-    matches = re.finditer(pattern, analysis, re.VERBOSE | re.IGNORECASE)
     scored_questions = []
 
-    for i, match in enumerate(matches, start=1):
+    for i, match in enumerate(pattern.finditer(analysis), start=1):
         try:
-            question_text = match.group("question").strip()
+            question_text = match.group("q1") or match.group("q2")
             reason_text = match.group('reason').strip()
 
             if not question_text:

@@ -1,5 +1,7 @@
 import logging
 
+from openai.types.shared import Reasoning
+
 from config import PipelineConfig
 from schemas import DreamerOut, PlannerOut
 from utils import retry_call
@@ -13,19 +15,22 @@ def planner(
     config: PipelineConfig
 ) -> PlannerOut:
     logger.info(f"Starting planner for query: {user_query[:100]}...")
+
+    pc = config.planner_config
     
     prompt = _make_planner_prompt(user_query, dreamer_out, config)
     logger.debug(f"Generated prompt of length: {len(prompt)}")
 
     def _call() -> PlannerOut:
         """Вызов LLM с structured output"""
-        logger.debug(f"Calling LLM with model: {config.planner_config.model}")
+        logger.debug(f"Calling LLM with model: {pc.model}")
         
         try:           
             resp = config.client.responses.parse(
-                model=config.planner_config.model,
+                model=pc.model,
                 input=[{"role": "user", "content": prompt}],
-                temperature=config.planner_config.temperature,
+                temperature=pc.temperature,
+                reasoning=Reasoning(effort=pc.reasoning_effort),
                 extra_body={"provider": {"sort": "latency"}},
                 text_format=PlannerOut
             )

@@ -22,6 +22,7 @@ def dreamer(
             model=dc.model,
             messages=[{"role": "user", "content": prompt}],
             temperature=dc.temperature,
+            reasoning_effort=dc.reasoning_effort
         )
         assert resp.choices[0].message, "Empty retriever message"
         return resp.choices[0].message
