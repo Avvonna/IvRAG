@@ -18,6 +18,8 @@ def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> dict[st
     # Топологическая сортировка шагов
     sorted_steps = _topological_sort(grounded_plan.steps)
     logger.info(f"Steps execution order: {[s.id for s in sorted_steps]}")
+
+    user_deliverables = {}
     
     # Выполнение шагов
     for i, step in enumerate(sorted_steps):
@@ -51,7 +53,20 @@ def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> dict[st
                     if out_name not in runtime_ctx:
                         runtime_ctx[out_name] = only_val
                         logger.debug(f"Created output alias: {out_name}")
-            
+
+            if step.give_to_user:
+                logger.info(f"Step {step.id} marked for user delivery. Outputs: {step.outputs}")
+                
+                # Если outputs явно названы
+                for out_name in step.outputs:
+                    if out_name in runtime_ctx:
+                        user_deliverables[out_name] = runtime_ctx[out_name]
+
+                # Если outputs не были названы
+                if not step.outputs:
+                    for k, v in result.items():
+                        user_deliverables[k] = v
+
             logger.info(f"Step {step.id} completed successfully")
             
         except Exception as e:
@@ -60,8 +75,8 @@ def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> dict[st
                 f"Ошибка выполнения шага {step.id} ({step.op_type.value}): {e}"
             ) from e
     
-    logger.info("Executor completed successfully")
-    return runtime_ctx
+    logger.info(f"Executor completed. Returning {len(user_deliverables)} user deliverables.")
+    return user_deliverables
 
 
 def _validate_dependencies(steps: list[GroundedStep]) -> None:

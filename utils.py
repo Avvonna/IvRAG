@@ -3,11 +3,12 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Iterable, Literal, Optional, TypeVar
+from typing import Any, Callable, Iterable, Literal, Optional, TypeVar
 
 import dotenv
 import pandas as pd
 from openai import RateLimitError
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from rapidfuzz import fuzz, process
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ def setup_environment():
     return api_key, db_path
 
 def setup_logging(
-    mode: Literal['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'] | None = 'NOTSET',
+    mode: Literal['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'] = 'NOTSET',
     log_dir: str = "logs",
     enable_console: bool = True
 ):
@@ -126,6 +127,7 @@ def retry_call(
                 delay *= 2
             else:
                 raise last_exc
+    raise
 
 def take_first_n(x: Iterable, n=30):
     x = sorted(x)
@@ -151,52 +153,6 @@ def find_top_match(query, choices) -> str:
     )[0]
     return match_[0]
 
-def resolve_refs(schema: dict) -> dict:
-    """
-    Разворачивает все $ref в JSON Schema, делая схему полностью inline.
-    Удаляет $defs после разворачивания.
-    """
-    import copy
-    
-    schema = copy.deepcopy(schema)
-    defs = schema.pop('$defs', {})
-    
-    def replace_refs(obj):
-        if isinstance(obj, dict):
-            if '$ref' in obj:
-                # Извлекаем имя из $ref (например, '#/$defs/PlanStep' или 'PlanStep')
-                ref_path = obj['$ref']
-                ref_name = ref_path.split('/')[-1] if '/' in ref_path else ref_path
-                
-                if ref_name in defs:
-                    # Заменяем $ref на полное определение
-                    resolved = copy.deepcopy(defs[ref_name])
-                    # Рекурсивно обрабатываем вложенные $ref
-                    return replace_refs(resolved)
-                else:
-                    return obj
-            else:
-                # Рекурсивно обрабатываем все ключи
-                return {k: replace_refs(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [replace_refs(item) for item in obj]
-        else:
-            return obj
-    
-    return replace_refs(schema)
-
-def clean_model(obj):
-    """ Удаляет из схемы title и additionalProperties"""
-    if isinstance(obj, dict):
-        return {
-            k: clean_model(v) 
-            for k, v in obj.items() 
-            if k not in ['title', 'additionalProperties']
-        }
-    elif isinstance(obj, list):
-        return [clean_model(item) for item in obj]
-    return obj
-
 def split_dict_into_chunks(d: dict, n_chunks:int):
     items = list(d.items())
     chunk_size = len(items) // n_chunks
@@ -211,3 +167,70 @@ def split_dict_into_chunks(d: dict, n_chunks:int):
         start = end
     
     return chunks
+
+def save_results_to_excel(results: dict[str, Any], filepath: str | None = None) -> str:
+    """Сохраняет словарь результатов в Excel файл"""
+    
+    if not filepath:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = f"results_{timestamp}.xlsx"
+    
+    logger.info(f"Starting export to Excel: {filepath}")
+
+    try:
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            sheet_name = 'Report'
+            pd.DataFrame().to_excel(writer, sheet_name=sheet_name)
+            
+            worksheet = writer.sheets[sheet_name]
+            
+            # --- Настройка стилей ---
+            # Стиль для ключей (Жирный, серый фон, рамка)
+            key_font = Font(bold=True, name='Calibri')
+            key_fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
+            key_align = Alignment(vertical='top', wrap_text=True)
+            thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                                 top=Side(style='thin'), bottom=Side(style='thin'))
+            
+            # Стиль для обычного текста (выравнивание по верху)
+            text_align = Alignment(vertical='top', wrap_text=True)
+
+            # Настройка ширины колонок
+            worksheet.column_dimensions['A'].width = 35
+            worksheet.column_dimensions['B'].width = 25
+            
+            current_row = 0
+            for key, value in results.items():
+                # Записываем Ключ
+                cell_key = worksheet.cell(row=current_row + 1, column=1, value=str(key))
+                
+                # Применяем стили к ключу
+                cell_key.font = key_font
+                cell_key.fill = key_fill
+                cell_key.alignment = key_align
+                cell_key.border = thin_border
+                
+                rows_occupied = 0
+                
+                # Записываем Значение
+                if isinstance(value, pd.DataFrame):
+                    value.to_excel(writer, sheet_name=sheet_name, startrow=current_row, startcol=1)
+                    header_height = value.columns.nlevels if hasattr(value.columns, 'nlevels') else 1
+                    rows_occupied = len(value) + header_height
+                    
+                else:
+                    # Для скалярных значений, списков или словарей
+                    val_str = str(value) if isinstance(value, (list, dict)) else value
+                    cell_val = worksheet.cell(row=current_row + 1, column=2, value=val_str)
+                    cell_val.alignment = text_align
+                    rows_occupied = 1
+
+                # Сдвиг + 2 пустые строки отступа
+                current_row += max(rows_occupied, 1) + 2
+
+        logger.info(f"Successfully saved results to {filepath}")
+        return filepath
+
+    except Exception as e:
+        logger.error(f"Failed to save Excel: {e}", exc_info=True)
+        raise

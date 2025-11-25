@@ -26,10 +26,7 @@ class OperationSpec:
 @dataclass
 class CapabilitySpec:
     operations: list[OperationSpec] = field(default_factory=list)
-    limits: dict[str, int] = field(default_factory=lambda: {
-        "max_steps": 10,
-        "max_operations_per_type": 3
-    })
+    limits: dict[str, int] = field(default_factory=lambda: {})
 
     def __post_init__(self):
         """Автоматически определяем категории операций"""

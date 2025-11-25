@@ -13,7 +13,7 @@ T = TypeVar('T', bound='SaveableModel')
 class SaveableModel(BaseModel):
     """Базовый класс для моделей с возможностью сохранения/загрузки"""
 
-    reasoning: str = Field("", description="Цепочка рассуждений модели")
+    reasoning: str = Field(default="", description="Цепочка рассуждений модели")
 
     def model_dump_json(self, **kwargs):
         if 'exclude' not in kwargs:
@@ -76,22 +76,11 @@ class RetrieverOut(SaveableModel):
             lines.append(f"\tReason: {sq.reason}")
         return "\n".join(lines)
 
-### Dreamer
-
-class DreamerOut(SaveableModel):
-    analysis: str
-
-    def __str__(self):
-        res = ["#"*20, "АНАЛИЗ", "#"*20, self.analysis, "\n"]
-        if self.reasoning:
-            res += ["#"*20, "РАССУЖДЕНИЯ", "#"*20, self.reasoning]
-        return "\n".join(res)
-
 ### Planner
 
 class PlanStep(BaseModel):
     id: str = Field(..., description="Уникальный идентификатор шага (s1, s2, ...)")
-    goal: str = Field("", description="Человекочитаемая цель шага")
+    goal: str = Field(default="", description="Человекочитаемая цель шага")
     operation: OperationType = Field(..., description="Тип операции из OperationType")
     inputs: dict[str, Any] | list | None = Field(
         default_factory=dict,
@@ -100,6 +89,10 @@ class PlanStep(BaseModel):
     outputs: list[str] = Field(
         default_factory=list,
         description="Имена выходов, которые появятся в контексте"
+    )
+    give_to_user: bool = Field(
+        ...,
+        description="Отдавать ли выходы данного шага пользователю или это промежуточные переменные"
     )
     constraints: dict[str, Any] = Field(
         default_factory=dict,
@@ -111,8 +104,8 @@ class PlanStep(BaseModel):
     )
 
 class PlannerOut(SaveableModel):
-    analysis: str = Field("", description="Короткий комментарий стратегии")
-    steps: list[PlanStep]
+    analysis: str = Field(default="", description="Короткий комментарий стратегии")
+    steps: list[PlanStep] = Field(default_factory=list)
 
     def __str__(self):
         res = []

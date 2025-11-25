@@ -239,10 +239,10 @@ def op_PIVOT(
         index="answer",
         columns="wave",
         values="respondent_uid",
-        aggfunc="nunique",
+        aggfunc="nunique", # type: ignore
         fill_value=0,
         observed=True
-    )
+    ) # type: ignore
     
     logger.info(f"Pivot table created: {pivot.shape}")
     logger.debug(f"Pivot columns: {list(pivot.columns)}")

@@ -20,6 +20,7 @@ class GroundedStep:
     outputs: list[str]
     constraints: dict[str, Any]
     depends_on: list[str]
+    give_to_user: bool
 
 
 @dataclass
@@ -82,6 +83,7 @@ def grounder(plan: PlannerOut) -> GrounderOut:
             outputs=list(s.outputs or []),
             constraints=dict(s.constraints or {}),
             depends_on=list(s.depends_on or []),
+            give_to_user=s.give_to_user
         ))
         
         logger.debug(f"Successfully grounded step {sid}: {op_type.value}")

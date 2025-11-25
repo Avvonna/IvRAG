@@ -1,9 +1,9 @@
 import logging
 
-from openai.types.shared import Reasoning
+from openai.types.shared_params import Reasoning
 
 from config import PipelineConfig
-from schemas import DreamerOut, PlannerOut
+from schemas import PlannerOut
 from utils import retry_call
 
 logger = logging.getLogger(__name__)
@@ -11,14 +11,13 @@ logger = logging.getLogger(__name__)
 
 def planner(
     user_query: str,
-    dreamer_out: DreamerOut,
     config: PipelineConfig
 ) -> PlannerOut:
-    logger.info(f"Starting planner for query: {user_query[:100]}...")
+    logger.info(f"Starting planner for query: {user_query}")
 
     pc = config.planner_config
     
-    prompt = _make_planner_prompt(user_query, dreamer_out, config)
+    prompt = _make_planner_prompt(user_query, config)
     logger.debug(f"Generated prompt of length: {len(prompt)}")
 
     def _call() -> PlannerOut:
@@ -37,10 +36,12 @@ def planner(
             plan = resp.output_parsed
             
             if not plan:
-                raise ValueError("LLM вернул пустой ответ")
+                logger.error("LLM вернул пустой ответ")
+                return PlannerOut()
             
             if not plan.steps:
-                raise ValueError("LLM вернул план без шагов")
+                logger.error("LLM вернул план без шагов")
+                return PlannerOut()
             
             logger.debug(f"Plan received: {len(plan.steps)} steps")
             logger.debug(f"Plan analysis: {plan.analysis}")
@@ -49,6 +50,7 @@ def planner(
             
         except Exception as e:
             logger.error(f"Failed to parse LLM response: {e}")
+            return PlannerOut()
     
     plan = retry_call(_call, retries=config.planner_config.retries, base_delay=config.planner_config.base_delay)
     
@@ -59,7 +61,6 @@ def planner(
 
 def _make_planner_prompt(
     user_query: str,
-    dreamer_out: DreamerOut,
     config: PipelineConfig
 ) -> str:
 
@@ -70,33 +71,28 @@ def _make_planner_prompt(
 # РОЛЬ
 Ты — ПЛАНИРОВЩИК операций для системы анализа данных опросов.
 
-# ЗАДАЧА
-Составь оптимальную последовательность команд для выполнения шагов плана.
-
 # ЗАПРОС ПОЛЬЗОВАТЕЛЯ
 {user_query}
-
-# ПЛАН АНАЛИЗА
-{dreamer_out.analysis}
-
-# ДОСТУПНЫЕ ВОПРОСЫ (для каждого указаны варианты ответов и волны, когда его задавали)
-{config.relevant_as_value_catalog()}
 
 # ДОСТУПНЫЕ ОПЕРАЦИИ
 {operations_spec}
 
+# ЗАДАЧА
+Определи, возможно ли ответить на запрос пользователя с использованием доступных операций.
+Если нет - верни план только с LOAD_DATA
+Если да - составь оптимальную последовательность команд
+
+# ДОСТУПНЫЕ ВОПРОСЫ (для каждого указаны варианты ответов и волны, когда его задавали)
+{config.relevant_as_value_catalog()}
+
 # КРИТИЧЕСКИ ВАЖНЫЕ ТРЕБОВАНИЯ К ПЛАНУ
 Обязательные правила:
-1. Использовать ТОЛЬКО операции из спецификации — не придумывай новые операции
-2. Использовать ТОЛЬКО доступные вопросы
-3. Использовать ТОЛЬКО доступные ответы для каждого вопроса
-4. Соблюдать типы данных — inputs/outputs должны соответствовать спецификации
-5. Определить зависимости — если шаг использует output предыдущего, укажи в depends_on
-6. Названия выводов операций делай осмысленными - результаты будут извлекаться из итогового контекста
-
-ФОРМАТ ОТВЕТА
-Верни план в формате JSON согласно схеме PlannerOut.
-Если анализ нельзя выполнить с помощью данного тебе функционала - верни план только с LOAD_DATA.
+1. Использовать ТОЛЬКО операции из спецификации
+2. Использовать ТОЛЬКО доступные вопросы и ответы
+3. Соблюдать типы данных — inputs/outputs должны соответствовать спецификации
+4. Определить зависимости — если шаг использует output предыдущего, укажи в depends_on
+5. Названия выводов операций делай осмысленными - результаты будут извлекаться из итогового контекста
+6. Устанавливай `give_to_user: true` ТОЛЬКО для финальных шагов, которые содержат ответ на вопрос пользователя
 
 ВАЖНО: step IDs должны быть СТРОГО в формате:
 - Первый шаг: "s1" 

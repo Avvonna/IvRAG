@@ -47,12 +47,7 @@ class BaseAgentConfig:
 class RetrieverConfig(BaseAgentConfig):
     """Конфигурация для Retriever"""
     n_questions_splits: int = field(default=2)
-    response_model: BaseModel = field(default_factory=RetrieverOut)
-    pass
-
-@dataclass
-class DreamerConfig(BaseAgentConfig):
-    """Конфигурация для Dreamer"""
+    response_model: Type[BaseModel] | None = field(default=RetrieverOut)
     pass
 
 @dataclass
@@ -67,7 +62,6 @@ class PipelineConfig:
     client: OpenAI
 
     retriever_config: RetrieverConfig
-    dreamer_config: DreamerConfig
     planner_config: PlannerConfig
 
     df_schema: list[str]
@@ -93,18 +87,15 @@ class PipelineConfig:
         df: pd.DataFrame,
         client: OpenAI,
         retriever_params: AgentParams = {},
-        dreamer_params: AgentParams = {},
         planner_params: AgentParams = {},
     ) -> PipelineConfig:
 
         rc = RetrieverConfig(**retriever_params)
-        dc = DreamerConfig(**dreamer_params)
         pp = PlannerConfig(**planner_params)
 
         return cls(
             client=client,
             retriever_config=rc,
-            dreamer_config=dc,
             planner_config=pp,
             df_schema=df.columns.to_list(),
             catalog=QuestionCatalog.from_df(

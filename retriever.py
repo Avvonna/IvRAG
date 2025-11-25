@@ -47,14 +47,14 @@ def retriever(
 
         if rc.reasoning_effort:
             try:
-                if msg.reasoning_details and len(msg.reasoning_details) > 0:
-                    reasons += ["#" * 20, f"Часть {i}", "#" * 20, msg.reasoning_details[0]["text"], "\n"]
+                if msg.reasoning_details and len(msg.reasoning_details) > 0: # type: ignore
+                    reasons += ["#" * 20, f"Часть {i}", "#" * 20, msg.reasoning_details[0]["text"], "\n"] # type: ignore
                 else:
                     logger.warning(f"No reasoning details found for block {i}")
             except (AttributeError, IndexError) as e:
                 logger.warning(f"Error extracting reasoning for block {i}: {e}")
 
-        retriever_out.results += _parse_retriever_response(msg.content).results
+        retriever_out.results += _parse_retriever_response(msg.content).results # type: ignore
 
     if reasons:
         retriever_out.reasoning = "\n".join(reasons)
