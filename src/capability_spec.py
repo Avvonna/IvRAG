@@ -18,7 +18,6 @@ class OperationSpec:
     description: str
     inputs: dict[str, str]  # {param_name: description}
     outputs: list[str]
-    constraints: dict[str, str] = field(default_factory=dict)
     example: dict = field(default_factory=dict)
     category: str = field(default_factory=str)
 
@@ -62,6 +61,7 @@ class CapabilitySpec:
     def _create_default_operations() -> list[OperationSpec]:
         return [
             # ==================== DATA LOADING ====================
+
             OperationSpec(
                 name=OperationType.LOAD_DATA,
                 description="Загрузить данные результатов опросов",
@@ -69,8 +69,9 @@ class CapabilitySpec:
                 outputs=["dataset"],
                 example={"waves": ["2025-01"]}
             ),
-            
+
             # ==================== FILTERING ====================
+
             OperationSpec(
                 name=OperationType.FILTER,
                 description="Отфильтровать респондентов по ответам на конкретный вопрос",
@@ -81,10 +82,6 @@ class CapabilitySpec:
                     "logic": "Логика фильтрации: 'include' (есть эти ответы) или 'exclude' (нет этих ответов)"
                 },
                 outputs=["filtered_dataset"],
-                constraints={
-                    "question": "MUST be from allowed_questions",
-                    "logic": "One of: ['include', 'exclude']"
-                },
                 example={
                     "dataset": "dataset",
                     "question": "[Тег] Вопрос?",
@@ -101,14 +98,11 @@ class CapabilitySpec:
                     "dataset_names": "Опциональные имена датасетов для отладки"
                 },
                 outputs=["intersected_dataset"],
-                constraints={
-                    "min_datasets": "At least 2 datasets required"
-                },
                 example={
                     "datasets": ["filtered_dataset_1", "filtered_dataset_2"]
                 }
             ),
-            
+
             OperationSpec(
                 name=OperationType.UNION,
                 description="Найти объединение респондентов из нескольких датасетов (логическое ИЛИ) и склеить их данные",
@@ -116,15 +110,13 @@ class CapabilitySpec:
                     "datasets": "Список датасетов для объединения (минимум 2)"
                 },
                 outputs=["union_dataset"],
-                constraints={
-                    "min_datasets": "At least 2 datasets required"
-                },
                 example={
                     "datasets": ["filtered_dataset_1", "filtered_dataset_2", "filtered_dataset_3"]
                 }
             ),
-            
+
             # ==================== AGGREGATION ====================
+
             OperationSpec(
                 name=OperationType.PIVOT,
                 description="Вычислить распределение ответов на вопрос. В колонках - волны опросов, в ячейках считается число уникальных респондентов.",
@@ -133,9 +125,6 @@ class CapabilitySpec:
                     "question": "Вопрос ТОЧНО из allowed_questions"
                 },
                 outputs=["pivot"],
-                constraints={
-                    "question": "MUST be from allowed_questions",
-                },
                 example={
                     "dataset": "filtered_dataset",
                     "question": "[Q115] В каких магазинах Вы делаете покупки?"
@@ -146,17 +135,16 @@ class CapabilitySpec:
     def to_prompt_context(
         self,
         format: Literal["detailed", "compact", "json"] = "detailed",
-        include_examples: bool = True,
-        include_constraints: bool = True
+        include_examples: bool = True
     ) -> str:
         if format == "json":
             return self._to_json()
         elif format == "compact":
             return self._to_compact()
         else:  # detailed
-            return self._to_detailed(include_examples, include_constraints)
+            return self._to_detailed(include_examples)
 
-    def _to_detailed(self, include_examples: bool, include_constraints: bool) -> str:
+    def _to_detailed(self, include_examples: bool) -> str:
         lines = ["# ДОСТУПНЫЕ ОПЕРАЦИИ\n"]
         
         for category in self.get_categories():
@@ -175,13 +163,6 @@ class CapabilitySpec:
                 # Выходы
                 lines.append(f"**Выходы:** {', '.join(f'`{o}`' for o in op.outputs)}\n")
                 
-                # Ограничения
-                if include_constraints and op.constraints:
-                    lines.append("**Ограничения:**")
-                    for key, value in op.constraints.items():
-                        lines.append(f"  - {key}: {value}")
-                    lines.append("")
-                
                 # Пример
                 if include_examples and op.example:
                     example_json = json.dumps(op.example, ensure_ascii=False, indent=2)
@@ -192,9 +173,10 @@ class CapabilitySpec:
                 
                 lines.append("---\n")
         
-        lines.append("## Ограничения системы\n")
-        for limit_name, limit_value in self.limits.items():
-            lines.append(f"- **{limit_name}**: {limit_value}")
+        if self.limits:
+            lines.append("## Ограничения системы\n")
+            for limit_name, limit_value in self.limits.items():
+                lines.append(f"- **{limit_name}**: {limit_value}")
         
         return "\n".join(lines)
 
@@ -215,7 +197,6 @@ class CapabilitySpec:
                     "description": op.description,
                     "inputs": op.inputs,
                     "outputs": op.outputs,
-                    "constraints": op.constraints,
                     "example": op.example,
                     "category": op.category
                 }

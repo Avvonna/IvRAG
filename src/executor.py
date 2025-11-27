@@ -235,16 +235,6 @@ def _materialize_inputs(step: GroundedStep, ctx: dict[str, Any]) -> dict[str, An
         kwargs[param_name] = resolved_value
         logger.debug(f"  {param_name} = {_safe_repr(resolved_value)}")
     
-    # Материализация constraints
-    for key, value in (step.constraints or {}).items():
-        if key in kwargs:
-            # Input имеет приоритет над Constraint
-            continue
-            
-        resolved_value = _resolve_value(value)
-        kwargs[key] = resolved_value
-        logger.debug(f"  {key} = {_safe_repr(resolved_value)} (constraint)")
-    
     # Автоматическое добавление dataset если нужно
     if "dataset" in ctx and "dataset" not in kwargs:
         kwargs["dataset"] = ctx["dataset"]

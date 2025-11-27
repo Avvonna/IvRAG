@@ -18,7 +18,6 @@ class GroundedStep:
     impl: Callable[..., Any]
     inputs: dict[str, str]
     outputs: list[str]
-    constraints: dict[str, Any]  
     depends_on: list[str]
     give_to_user: bool
 
@@ -34,7 +33,6 @@ class GrounderOut:
             res.append(f"{i}. [{s.id}] {s.op_type}")
             res.append(f"\tGoal: {s.goal}")
             res.append(f"\tInputs: {s.inputs}")
-            res.append(f"\tConstraints: {s.constraints}")
             res.append(f"\tOutputs: {s.outputs}")
         return "\n".join(res)
 
@@ -82,7 +80,6 @@ def grounder(plan: PlannerOut) -> GrounderOut:
             impl=impl,
             inputs=inputs_map,
             outputs=list(s.outputs or []),
-            constraints=dict(s.constraints or {}),
             depends_on=list(s.depends_on or []),
             give_to_user=s.give_to_user
         ))

@@ -93,10 +93,6 @@ class PlanStep(BaseModel):
         ...,
         description="Отдавать ли выходы данного шага пользователю или это промежуточные переменные"
     )
-    constraints: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Параметры операции или {}"
-    )
     depends_on: list[str] = Field(
         default_factory=list,
         description="ID шагов, от которых зависит текущий или []"
@@ -114,7 +110,6 @@ class PlannerOut(SaveableModel):
             res.append(f"\tGoal: {s.goal}")
             res.append(f"\tInputs: {s.inputs}")
             res.append(f"\tOutputs: {s.outputs}")
-            res.append(f"\tConstraints: {s.constraints}")
             res.append(f"\tDepends on: {s.depends_on}")
         return "\n".join(res)
    
