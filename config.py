@@ -19,14 +19,16 @@ DEFAULT_PROVIDER_SORT = None
 DEFAULT_REASONING = None
 DEFAULT_BASE_DELAY = 1.0
 DEFAULT_N_RETRIES = 3
+DEFAULT_MAX_TOKENS = None
 
 
 class AgentParams(TypedDict, total=False):
     """Type definition for agent configuration parameters."""
     model: str
     temperature: float
-    response_model: Type[BaseModel] | None
-    provider_sort: Literal["latency", "price"] | None
+    response_model: Type[BaseModel]
+    max_tokens: int
+    provider_sort: Literal["latency", "price"]
     reasoning_effort: ReasoningEffort
     base_delay: float
     retries: int
@@ -37,6 +39,7 @@ class BaseAgentConfig:
     model: str = field(default=DEFAULT_MODEL)
     temperature: float = field(default=DEFAULT_TEMPERATURE)
     response_model: Type[BaseModel] | None = field(default=None)
+    max_tokens: int | None = field(default=DEFAULT_MAX_TOKENS)
     provider_sort: Literal["latency", "price"] | None = field(default=DEFAULT_PROVIDER_SORT)
     reasoning_effort: ReasoningEffort = field(default=DEFAULT_REASONING)
     base_delay: float = field(default=DEFAULT_BASE_DELAY)
@@ -79,8 +82,17 @@ class PipelineConfig:
             return self.catalog\
                 .filter(self.relevant_questions)\
                 .as_value_catalog()
-        return self.catalog.as_value_catalog()
-    
+        raise ValueError("No relevant questions specified")
+
+    def update_context(self, source: RetrieverOut | list[str]):
+        """Обновляет контекст релевантными вопросами из RetrieverOut или списка"""
+        if isinstance(source, list):
+            self.relevant_questions = source
+        elif hasattr(source, "clean_list"):
+            self.relevant_questions = source.clean_list()
+        else:
+            raise TypeError("Source must be RetrieverOut or list[str]")
+
     @classmethod
     def setup(
         cls,

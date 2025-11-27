@@ -1,7 +1,5 @@
 import logging
 
-from openai.types.shared_params import Reasoning
-
 from config import PipelineConfig
 from schemas import PlannerOut
 from utils import retry_call
@@ -20,42 +18,42 @@ def planner(
     prompt = _make_planner_prompt(user_query, config)
     logger.debug(f"Generated prompt of length: {len(prompt)}")
 
+    params = {
+        "model": pc.model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": pc.temperature,
+        "response_format": PlannerOut,
+    }
+
+    if pc.max_tokens:
+        params["max_tokens"] = pc.max_tokens
+    if pc.reasoning_effort:
+        params["reasoning_effort"] = pc.reasoning_effort
+
+    extra_body = {}
+    if pc.provider_sort:
+        extra_body["provider"] = {"sort": pc.provider_sort}
+    if extra_body:
+        params["extra_body"] = extra_body
+
     def _call() -> PlannerOut:
         """Вызов LLM с structured output"""
         logger.debug(f"Calling LLM with model: {pc.model}")
-        
-        try:           
-            resp = config.client.responses.parse(
-                model=pc.model,
-                input=[{"role": "user", "content": prompt}],
-                temperature=pc.temperature,
-                reasoning=Reasoning(effort=pc.reasoning_effort),
-                extra_body={"provider": {"sort": "latency"}},
-                text_format=PlannerOut
-            )
-            plan = resp.output_parsed
-            
-            if not plan:
-                logger.error("LLM вернул пустой ответ")
-                return PlannerOut()
-            
-            if not plan.steps:
-                logger.error("LLM вернул план без шагов")
-                return PlannerOut()
-            
-            logger.debug(f"Plan received: {len(plan.steps)} steps")
-            logger.debug(f"Plan analysis: {plan.analysis}")
-            
-            return plan
-            
-        except Exception as e:
-            logger.error(f"Failed to parse LLM response: {e}")
-            return PlannerOut()
+
+        resp = config.client.chat.completions.parse(**params)
+        plan = resp.choices[0].message.parsed
+
+        if not plan or not plan.steps:
+            raise ValueError("LLM returned empty plan or no steps")
+
+        logger.debug(f"Plan:\n{plan}")
+
+        return plan
+
     
     plan = retry_call(_call, retries=config.planner_config.retries, base_delay=config.planner_config.base_delay)
     
     logger.debug(f"Planner returned: {plan}")
-    logger.info(f"Planner completed: {len(plan.steps)} steps generated")
     return plan
 
 
@@ -69,36 +67,45 @@ def _make_planner_prompt(
 
     prompt = f"""
 # РОЛЬ
-Ты — ПЛАНИРОВЩИК операций для системы анализа данных опросов.
+Ты — ПЛАНИРОВЩИК для системы анализа данных. Твоя цель — преобразовать запрос пользователя в последовательность исполняемых шагов (план).
 
-# ЗАПРОС ПОЛЬЗОВАТЕЛЯ
-{user_query}
-
-# ДОСТУПНЫЕ ОПЕРАЦИИ
+# СПЕЦИФИКАЦИЯ ОПЕРАЦИЙ
 {operations_spec}
 
-# ЗАДАЧА
-Определи, возможно ли ответить на запрос пользователя с использованием доступных операций.
-Если нет - верни план только с LOAD_DATA
-Если да - составь оптимальную последовательность команд
-
-# ДОСТУПНЫЕ ВОПРОСЫ (для каждого указаны варианты ответов и волны, когда его задавали)
+# КАТАЛОГ ДАННЫХ (Доступные вопросы и ответы)
 {config.relevant_as_value_catalog()}
 
-# КРИТИЧЕСКИ ВАЖНЫЕ ТРЕБОВАНИЯ К ПЛАНУ
-Обязательные правила:
-1. Использовать ТОЛЬКО операции из спецификации
-2. Использовать ТОЛЬКО доступные вопросы и ответы
-3. Соблюдать типы данных — inputs/outputs должны соответствовать спецификации
-4. Определить зависимости — если шаг использует output предыдущего, укажи в depends_on
-5. Названия выводов операций делай осмысленными - результаты будут извлекаться из итогового контекста
-6. Устанавливай `give_to_user: true` ТОЛЬКО для финальных шагов, которые содержат ответ на вопрос пользователя
+# ЗАПРОС ПОЛЬЗОВАТЕЛЯ
+"{user_query}"
 
-ВАЖНО: step IDs должны быть СТРОГО в формате:
-- Первый шаг: "s1" 
-- Второй шаг: "s2"
-- Третий шаг: "s3"
-- И так далее...
+# ИНСТРУКЦИЯ ПО ПОТОКУ ДАННЫХ (DATA FLOW) — ЭТО КРИТИЧНО!
+Ты должен явно передавать данные между шагами. Система НЕ передает контекст магическим образом.
+1. Если Шаг A производит данные (output), придумай ему уникальное имя (переменную).
+2. Если Шаг B должен использовать эти данные, передай это имя в его inputs.
+
+# ПРАВИЛА ИМЕНОВАНИЯ ПЕРЕМЕННЫХ
+Чтобы система не перепутала переменную с обычным текстом, следуй этим префиксам в `outputs`:
+- Для таблиц данных (DataFrames): используй префикс `df_` (например: `df_filtered`, `df_women`).
+- Для числовых метрик/результатов: используй префикс `res_` (например: `res_nps`, `res_chart`).
+
+# ФОРМАТ ШАГОВ
+1. **id**: Строго "s1", "s2", "s3"...
+2. **depends_on**: Список ID шагов, которые должны выполниться ДО текущего.
+3. **inputs**: Словарь аргументов. Если значение — это результат предыдущего шага, пиши имя переменной (например, "df_filtered"). Если это текстовая константа (например, "Москва"), пиши как есть.
+4. **give_to_user**: Ставь `true` ТОЛЬКО для тех шагов, результат которых является ОТВЕТОМ на вопрос пользователя. Промежуточные шаги (фильтрация, загрузка) — `false`.
+
+# ПРИМЕР ПЛАНА (Thinking Process)
+User: "Посчитай NPS для женщин"
+Plan:
+- s1 [LOAD_DATA]: Загружаем данные. Output: ["df_raw"]
+- s2 [FILTER]: Берем "df_raw", оставляем gender='Female'. Output: ["df_women"]. Depends on: ["s1"]
+- s3 [CALC_NPS]: Берем "df_women". Считаем метрику. Output: ["res_nps_women"]. Give to user: True. Depends on: ["s2"]
+
+# ТВОЯ ЗАДАЧА
+Составь план для текущего запроса.
+- Если запрос невыполним с данными операциями -> верни пустой список шагов или только LOAD_DATA.
+- Используй ТОЛЬКО доступные операции.
+- В inputs используй точные значения из Каталога Данных (если применимо).
 
 """.strip()
 

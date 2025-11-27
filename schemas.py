@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Type, TypeVar
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
 from capability_spec import OperationType
 
@@ -13,12 +14,10 @@ T = TypeVar('T', bound='SaveableModel')
 class SaveableModel(BaseModel):
     """Базовый класс для моделей с возможностью сохранения/загрузки"""
 
-    reasoning: str = Field(default="", description="Цепочка рассуждений модели")
-
-    def model_dump_json(self, **kwargs):
-        if 'exclude' not in kwargs:
-            kwargs['exclude'] = {'reasoning'}
-        return super().model_dump_json(**kwargs)
+    reasoning: SkipJsonSchema[str] = Field(
+        default="", 
+        description="Цепочка рассуждений"
+    )
     
     @classmethod
     def load(cls: Type[T], path: str | Path) -> T:
@@ -82,9 +81,9 @@ class PlanStep(BaseModel):
     id: str = Field(..., description="Уникальный идентификатор шага (s1, s2, ...)")
     goal: str = Field(default="", description="Человекочитаемая цель шага")
     operation: OperationType = Field(..., description="Тип операции из OperationType")
-    inputs: dict[str, Any] | list | None = Field(
+    inputs: dict[str, Any] = Field(
         default_factory=dict,
-        description="Имена входов из контекста или []"
+        description="Словарь аргументов: {имя_параметра: значение_или_имя_переменной}"
     )
     outputs: list[str] = Field(
         default_factory=list,
@@ -104,12 +103,12 @@ class PlanStep(BaseModel):
     )
 
 class PlannerOut(SaveableModel):
-    analysis: str = Field(default="", description="Короткий комментарий стратегии")
+    # analysis: str = Field(default="", description="Короткий комментарий стратегии")
     steps: list[PlanStep] = Field(default_factory=list)
 
     def __str__(self):
         res = []
-        res.append(f"АНАЛИЗ: {self.analysis}")
+        # res.append(f"АНАЛИЗ: {self.analysis}")
         for i, s in enumerate(self.steps):
             res.append(f"{i}. [{s.id}] {s.operation}")
             res.append(f"\tGoal: {s.goal}")

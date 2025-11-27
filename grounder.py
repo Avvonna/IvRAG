@@ -15,10 +15,10 @@ class GroundedStep:
     id: str
     goal: str
     op_type: OperationType
-    impl: Callable[..., dict[str, Any]]
-    inputs: dict[str, Any]
+    impl: Callable[..., Any]
+    inputs: dict[str, str]
     outputs: list[str]
-    constraints: dict[str, Any]
+    constraints: dict[str, Any]  
     depends_on: list[str]
     give_to_user: bool
 
@@ -26,41 +26,38 @@ class GroundedStep:
 @dataclass
 class GrounderOut:
     """Результат работы grounder"""
-    analysis: str
     steps: list[GroundedStep]
 
     def __str__(self):
         res = []
-        res.append(f"АНАЛИЗ: {self.analysis}")
         for i, s in enumerate(self.steps):
             res.append(f"{i}. [{s.id}] {s.op_type}")
             res.append(f"\tGoal: {s.goal}")
             res.append(f"\tInputs: {s.inputs}")
-            res.append(f"\tOutputs: {s.outputs}")
             res.append(f"\tConstraints: {s.constraints}")
-            res.append(f"\tDepends on: {s.depends_on}")
+            res.append(f"\tOutputs: {s.outputs}")
         return "\n".join(res)
 
 
 def grounder(plan: PlannerOut) -> GrounderOut:
     logger.info("Starting grounder")
     
-    analysis = plan.analysis
     steps_in = plan.steps
     
     if not isinstance(steps_in, list) or not steps_in:
-        raise GroundingError("Пустой список шагов")
+        logger.warning("Empty plan received")
+        return GrounderOut(steps=[])
 
     grounded: list[GroundedStep] = []
-    seen: set[str] = set()
+    seen_ids: set[str] = set()
 
     for i, s in enumerate(steps_in):
-        logger.debug(f"Grounding step {i+1}/{len(steps_in)}: {s.id}")
-        
         sid = s.id
-        if not sid or sid in seen:
-            raise GroundingError(f"Проблема с id шага: {sid}")
-        seen.add(sid)
+        if not sid:
+            raise GroundingError(f"Шаг {i} не имеет ID")
+        if sid in seen_ids:
+            raise GroundingError(f"Дубликат ID шага: {sid}")
+        seen_ids.add(sid)
 
         op_type: OperationType = s.operation
         impl = OP_REGISTRY.get(op_type)
@@ -69,24 +66,26 @@ def grounder(plan: PlannerOut) -> GrounderOut:
             logger.error(f"No implementation for operation: {op_type.value}")
             raise GroundingError(f"Нет реализации для операции: {op_type.value}")
 
-        inputs = s.inputs or {}
-        if isinstance(inputs, list):
-            logger.warning(f"Step {sid}: inputs is list, converting to empty dict")
-            inputs = {}
+        inputs_map = {}
+        if isinstance(s.inputs, dict):
+            inputs_map = s.inputs
+        elif s.inputs is None:
+            inputs_map = {}
+        else:
+            logger.warning(f"Step {sid}: inputs expected as dict, got {type(s.inputs)}. Ignoring inputs.")
+            inputs_map = {}
 
         grounded.append(GroundedStep(
             id=sid,
             goal=s.goal or "",
             op_type=op_type,
             impl=impl,
-            inputs=inputs,
+            inputs=inputs_map,
             outputs=list(s.outputs or []),
             constraints=dict(s.constraints or {}),
             depends_on=list(s.depends_on or []),
             give_to_user=s.give_to_user
         ))
         
-        logger.debug(f"Successfully grounded step {sid}: {op_type.value}")
-
-    logger.info(f"Grounder completed: {len(grounded)} steps grounded")
-    return GrounderOut(analysis=analysis, steps=grounded)
+    logger.info(f"Grounder completed: {len(grounded)} steps ready")
+    return GrounderOut(steps=grounded)

@@ -6,17 +6,17 @@ from pydantic import BaseModel, Field
 from schemas import QuestionInfo
 
 
+def _clip(xs: list[str], limit: int) -> list[str]:
+    return xs[:limit] if limit and len(xs) > limit else xs
+
 class QuestionCatalog(BaseModel):
     questions: list[QuestionInfo] = Field(default_factory=list)
 
     def as_value_catalog(self, limit: int = 30) -> dict[str, dict]:
-        def clip(xs: list[str]) -> list[str]:
-            return xs[:limit] if limit and len(xs) > limit else xs
-        
         return {
             q.id: {
-                "answers": clip(q.answers),
-                "waves": clip(q.waves),
+                "answers": _clip(q.answers, limit),
+                "waves": _clip(q.waves, limit),
             }
             for q in self.questions
         }

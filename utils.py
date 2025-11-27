@@ -8,7 +8,7 @@ from typing import Any, Callable, Iterable, Literal, Optional, TypeVar
 import dotenv
 import pandas as pd
 from openai import RateLimitError
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment, Font, PatternFill
 from rapidfuzz import fuzz, process
 
 logger = logging.getLogger(__name__)
@@ -168,8 +168,18 @@ def split_dict_into_chunks(d: dict, n_chunks:int):
     
     return chunks
 
-def save_results_to_excel(results: dict[str, Any], filepath: str | None = None) -> str:
-    """Сохраняет словарь результатов в Excel файл"""
+def save_results_to_excel(
+    results: dict[str, Any], 
+    provenance: dict[str, list[str]] | None = None, 
+    filepath: str | None = None
+) -> str:
+    """
+    Сохраняет результаты в Excel.
+    Формат:
+    Col A (Row N)   : Ключ
+    Col A (Row N+1) : История (текст)
+    Col B (Row N...) : Значение/Таблица
+    """
     
     if not filepath:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -180,53 +190,58 @@ def save_results_to_excel(results: dict[str, Any], filepath: str | None = None) 
     try:
         with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
             sheet_name = 'Report'
-            pd.DataFrame().to_excel(writer, sheet_name=sheet_name)
-            
+            pd.DataFrame().to_excel(writer, sheet_name=sheet_name) # Инициализация
             worksheet = writer.sheets[sheet_name]
             
-            # --- Настройка стилей ---
-            # Стиль для ключей (Жирный, серый фон, рамка)
-            key_font = Font(bold=True, name='Calibri')
+            # --- Стили ---
+            # Ключ: жирный, серый фон
+            key_font = Font(bold=True, name='Calibri', size=11)
             key_fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
             key_align = Alignment(vertical='top', wrap_text=True)
-            thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
-                                 top=Side(style='thin'), bottom=Side(style='thin'))
             
-            # Стиль для обычного текста (выравнивание по верху)
-            text_align = Alignment(vertical='top', wrap_text=True)
-
-            # Настройка ширины колонок
-            worksheet.column_dimensions['A'].width = 35
+            # История: курсив, поменьше, серый текст
+            prov_font = Font(name='Calibri', size=9, italic=True, color="555555")
+            prov_align = Alignment(vertical='top', wrap_text=True)
+            
+            # Общие настройки
+            val_align = Alignment(vertical='top')
+            worksheet.column_dimensions['A'].width = 40
             worksheet.column_dimensions['B'].width = 25
             
-            current_row = 0
+            current_row = 0 # 0-based index для Pandas
+            
             for key, value in results.items():
-                # Записываем Ключ
+                # 1. Записываем КЛЮЧ (Col A, Row N)
                 cell_key = worksheet.cell(row=current_row + 1, column=1, value=str(key))
-                
-                # Применяем стили к ключу
                 cell_key.font = key_font
                 cell_key.fill = key_fill
                 cell_key.alignment = key_align
-                cell_key.border = thin_border
                 
-                rows_occupied = 0
+                # 2. Записываем ИСТОРИЮ (Col A, Row N+1)
+                prov_text = "\n".join(provenance.get(key, [])) if provenance else ""
+                cell_prov = worksheet.cell(row=current_row + 2, column=1, value=prov_text)
+                cell_prov.font = prov_font
+                cell_prov.alignment = prov_align
                 
-                # Записываем Значение
+                # 3. Записываем ЗНАЧЕНИЕ (Col B, Row N...)
+                rows_occupied_val = 0
+                
                 if isinstance(value, pd.DataFrame):
                     value.to_excel(writer, sheet_name=sheet_name, startrow=current_row, startcol=1)
                     header_height = value.columns.nlevels if hasattr(value.columns, 'nlevels') else 1
-                    rows_occupied = len(value) + header_height
-                    
+                    rows_occupied_val = len(value) + header_height
                 else:
-                    # Для скалярных значений, списков или словарей
                     val_str = str(value) if isinstance(value, (list, dict)) else value
                     cell_val = worksheet.cell(row=current_row + 1, column=2, value=val_str)
-                    cell_val.alignment = text_align
-                    rows_occupied = 1
+                    cell_val.alignment = val_align
+                    rows_occupied_val = 1
 
-                # Сдвиг + 2 пустые строки отступа
-                current_row += max(rows_occupied, 1) + 2
+                # 4. Расчет отступа
+                # Слева занято минимум 2 строки (Key + History), справа rows_occupied_val
+                block_height = max(rows_occupied_val, 2)
+                
+                # Сдвигаем курсор + 2 строки разрыва
+                current_row += block_height + 2
 
         logger.info(f"Successfully saved results to {filepath}")
         return filepath

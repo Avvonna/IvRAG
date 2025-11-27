@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import logging
 import re
 from string import Template
+
+from openai.types.chat import ChatCompletion
 
 from config import PipelineConfig
 from schemas import RetrieverOut, ScoredQuestion
@@ -27,17 +31,30 @@ def retriever(
     retriever_out = RetrieverOut(results=[])
     reasons = []
 
+    params = {
+        "model": rc.model,
+        "temperature": rc.temperature
+    }
+
+    if rc.max_tokens:
+        params["max_tokens"] = rc.max_tokens
+    if rc.reasoning_effort:
+        params["reasoning_effort"] = rc.reasoning_effort
+
+    extra_body = {}
+    if rc.provider_sort:
+        extra_body["provider"] = {"sort": rc.provider_sort}
+    if extra_body:
+        params["extra_body"] = extra_body
+
     def _call(prompt):
         logger.debug(f"Calling LLM with model: {rc.model}")
         logger.debug(f"Prompt length: {len(prompt)}")
         
-        resp = config.client.chat.completions.create(
-            model=rc.model,
+        resp: ChatCompletion = config.client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            temperature=rc.temperature,
-            reasoning_effort=rc.reasoning_effort
+            **params
         )
-        assert resp.choices[0].message, "Empty retriever message"
         return resp.choices[0].message
 
     for i, block in enumerate(questions_blocks, start=1):
@@ -51,7 +68,7 @@ def retriever(
                     reasons += ["#" * 20, f"Часть {i}", "#" * 20, msg.reasoning_details[0]["text"], "\n"] # type: ignore
                 else:
                     logger.warning(f"No reasoning details found for block {i}")
-            except (AttributeError, IndexError) as e:
+            except (AttributeError, IndexError, KeyError) as e:
                 logger.warning(f"Error extracting reasoning for block {i}: {e}")
 
         retriever_out.results += _parse_retriever_response(msg.content).results # type: ignore
@@ -73,7 +90,7 @@ def retriever(
 
     logger.info(f"Retriever completed with {len(retriever_out.results)} questions")
 
-    config.relevant_questions = retriever_out.clean_list()
+    config.update_context(retriever_out)
 
     return retriever_out
 
@@ -83,7 +100,7 @@ def _make_retriever_prompt(user_query: str) -> Template:
 
 ВАЖНО:
 - При поиске смотри также на варианты ответов
-- Не объединяй вопросы: если есть несколько схожих вопросов, пиши их отдельно
+- Не объединяй вопросы: каждый вопрос пиши отдельным пунктом
 
 **ЗАПРОС:** {user_query}
 

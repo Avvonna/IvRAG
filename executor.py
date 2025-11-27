@@ -8,7 +8,7 @@ from operations import GroundingError
 logger = logging.getLogger(__name__)
 
 
-def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> dict[str, Any]:
+def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> tuple[dict[str, Any], dict[str, list[str]]]:
     """ Выполняет план операций с учётом зависимостей и топологической сортировки """
     logger.info(f"Starting executor with {len(grounded_plan.steps)} steps")
     
@@ -21,9 +21,27 @@ def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> dict[st
 
     user_deliverables = {}
     
+    # Структуры для отслеживания истории данных
+    var_ancestors: dict[str, set[str]] = defaultdict(set)
+    step_descriptions: dict[str, str] = {}
+
     # Выполнение шагов
     for i, step in enumerate(sorted_steps):
         logger.info(f"Executing step {i+1}/{len(sorted_steps)}: {step.id} ({step.op_type.value})")
+
+        # Сохраняем описание для истории
+        step_descriptions[step.id] = f"[{step.op_type.value}] {step.goal}"
+
+        current_ancestors = set()
+        for inp_val in (step.inputs or {}).values():
+            if isinstance(inp_val, str) and inp_val in var_ancestors:
+                current_ancestors.update(var_ancestors[inp_val])
+            elif isinstance(inp_val, list):
+                for item in inp_val:
+                    if isinstance(item, str) and item in var_ancestors:
+                        current_ancestors.update(var_ancestors[item])
+
+        current_ancestors.add(step.id)
         
         try:
             # Материализация входов из контекста
@@ -40,32 +58,43 @@ def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> dict[st
                 )
             
             logger.debug(f"Step {step.id} produced keys: {list(result.keys())}")
-            for key, value in result.items():
-                logger.debug(f"  {key}: {_safe_repr(value)}")
             
-            # Обновление контекста
+            # Сохраняем реальные результаты в контекст
             runtime_ctx.update(result)
-            
+
+            # По умолчанию используем ключи, которые вернула функция
+            output_keys = list(result.keys())
+
             # Если outputs указаны явно, создаём алиасы
-            if step.outputs and len(result) == 1:
-                only_val = list(result.values())[0]
-                for out_name in step.outputs:
-                    if out_name not in runtime_ctx:
-                        runtime_ctx[out_name] = only_val
-                        logger.debug(f"Created output alias: {out_name}")
+            if step.outputs:
+                # Случай 1: 1 выход в плане, 1 выход по факту -> Алиас
+                if len(result) == 1:
+                    plan_name = step.outputs[0]
+                    val = list(result.values())[0]
+                    if plan_name not in runtime_ctx:
+                        runtime_ctx[plan_name] = val
+                        logger.debug(f"Created output alias: {plan_name} -> {type(val).__name__}")
+                    output_keys = [plan_name]
+                
+                # Случай 2: Количество совпадает (N к N) -> Пытаемся мапить по порядку (редкий кейс)
+                elif len(step.outputs) == len(result):
+                    result_vals = list(result.values())
+                    new_keys = []
+                    for idx, plan_name in enumerate(step.outputs):
+                        runtime_ctx[plan_name] = result_vals[idx]
+                        new_keys.append(plan_name)
+                    output_keys = new_keys
+            
+            # Привязываем историю ко всем выходным переменным (и реальным, и алиасам)
+            for key in output_keys:
+                var_ancestors[key] = current_ancestors.copy()
 
             if step.give_to_user:
-                logger.info(f"Step {step.id} marked for user delivery. Outputs: {step.outputs}")
-                
-                # Если outputs явно названы
-                for out_name in step.outputs:
+                logger.info(f"Step {step.id} marked for user delivery. Outputs: {output_keys}")
+                for out_name in output_keys:
+                    # Важно брать из runtime_ctx, т.к. output_keys теперь точно там есть
                     if out_name in runtime_ctx:
                         user_deliverables[out_name] = runtime_ctx[out_name]
-
-                # Если outputs не были названы
-                if not step.outputs:
-                    for k, v in result.items():
-                        user_deliverables[k] = v
 
             logger.info(f"Step {step.id} completed successfully")
             
@@ -75,8 +104,27 @@ def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> dict[st
                 f"Ошибка выполнения шага {step.id} ({step.op_type.value}): {e}"
             ) from e
     
-    logger.info(f"Executor completed. Returning {len(user_deliverables)} user deliverables.")
-    return user_deliverables
+    # Формирование читаемой истории для финальных результатов
+    final_provenance = {}
+    for key in user_deliverables:
+        ancestor_ids = var_ancestors.get(key, set())
+        
+        # Сортировка ID
+        def sort_key(x):
+            if x.startswith('s') and x[1:].isdigit():
+                return int(x[1:])
+            return x
+            
+        sorted_ids = sorted(list(ancestor_ids), key=sort_key)
+        
+        history = []
+        for sid in sorted_ids:
+            if sid in step_descriptions:
+                history.append(f"{sid}: {step_descriptions[sid]}")
+        final_provenance[key] = history
+    
+    logger.info(f"Executor completed. Returning {len(user_deliverables)} deliverables with provenance.")
+    return user_deliverables, final_provenance
 
 
 def _validate_dependencies(steps: list[GroundedStep]) -> None:
@@ -149,10 +197,8 @@ def _safe_repr(value: Any, max_len: int = 100) -> str:
     """Безопасное представление значения для логов"""
     try:
         if hasattr(value, 'shape'):
-            # Для pandas/numpy объектов
             return f"{type(value).__name__}(shape={getattr(value, 'shape', 'unknown')})"
         elif hasattr(value, '__len__') and len(value) > 10:
-            # Для больших коллекций
             return f"{type(value).__name__}(len={len(value)})"
         else:
             repr_str = repr(value)
@@ -164,21 +210,8 @@ def _safe_repr(value: Any, max_len: int = 100) -> str:
 
 def _materialize_inputs(step: GroundedStep, ctx: dict[str, Any]) -> dict[str, Any]:
     """
-    Материализует входные параметры шага из контекста выполнения
-    
-    Правила материализации:
-    1. Если значение - строка и она есть в контексте → берём значение из контекста
-    2. Если значение - список строк → рекурсивно материализуем каждый элемент
-    3. Иначе используем значение как есть (литерал)
-    4. Constraints добавляются как параметры
-    5. dataset добавляется автоматически, если есть в контексте
-    
-    Args:
-        step: Шаг для выполнения
-        ctx: Текущий контекст выполнения
-        
-    Returns:
-        Словарь с готовыми аргументами для вызова операции
+    Материализует входные параметры шага из контекста выполнения.
+    Требует, чтобы исходный датафрейм был в ctx под ключом 'dataset'.
     """
     kwargs: dict[str, Any] = {}
     
@@ -205,7 +238,7 @@ def _materialize_inputs(step: GroundedStep, ctx: dict[str, Any]) -> dict[str, An
     # Материализация constraints
     for key, value in (step.constraints or {}).items():
         if key in kwargs:
-            logger.warning(f"Constraint '{key}' conflicts with input, skipping")
+            # Input имеет приоритет над Constraint
             continue
             
         resolved_value = _resolve_value(value)
