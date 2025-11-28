@@ -10,6 +10,7 @@ class OperationType(str, Enum):
     PIVOT = "PIVOT"
     INTERSECT = "INTERSECT"
     UNION = "UNION"
+    CALCULATE_AVERAGE = "CALCULATE_AVERAGE"
 
 
 @dataclass
@@ -44,7 +45,7 @@ class CapabilitySpec:
                 return "Data Loading"
             case "FILTER" | "INTERSECT" | "UNION":
                 return "Filtering"
-            case "PIVOT":
+            case "PIVOT" | "CALCULATE_AVERAGE":
                 return "Aggregation"
             case _:
                 return "Other"
@@ -128,6 +129,20 @@ class CapabilitySpec:
                 example={
                     "dataset": "filtered_dataset",
                     "question": "[Q115] В каких магазинах Вы делаете покупки?"
+                }
+            ),
+
+            OperationSpec(
+                name=OperationType.CALCULATE_AVERAGE,
+                description="Рассчитать среднее значение (Weighted Mean) на основе сводной таблицы и шкалы весов.",
+                inputs={
+                    "pivot_table": "Сводная таблица (результат операции PIVOT)",
+                    "scale": "Словарь сопоставления ответов и чисел (например, {'Отлично': 5, 'Плохо': 1})"
+                },
+                outputs=["average_table"],
+                example={
+                    "pivot_table": "pivot",
+                    "scale": {"Полностью согласен": 5, "Скорее согласен": 4, "Нет": 1}
                 }
             )
         ]

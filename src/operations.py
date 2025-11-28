@@ -254,6 +254,54 @@ def op_PIVOT(
     
     return {"pivot": pivot}
 
+def op_CALCULATE_AVERAGE(
+    *,
+    pivot_table: pd.DataFrame,
+    scale: dict[str, int | float],
+    **_
+) -> dict[str, Any]:
+    """
+    Считает взвешенное среднее по колонкам сводной таблицы.
+    
+    Formula: Sum(Count * Weight) / Sum(Count)
+    Только для строк, которые есть в scale.
+    
+    Args:
+        pivot_table: DataFrame, где index - варианты ответов, columns - волны, values - количество.
+        scale: Словарь { "Вариант ответа": Вес }.
+        
+    Returns:
+        dict с ключом "average_table" (DataFrame с одной строкой 'Average')
+    """
+    logger.info("Calculating weighted average")
+    logger.debug(f"Scale provided: {scale}")
+
+    valid_answers = [ans for ans in pivot_table.index if ans in scale]
+
+    if not valid_answers:
+        raise GroundingError(
+            "Ни один вариант ответа из сводной таблицы не найден в шкале (scale). "
+            f"Ответы в таблице: {list(pivot_table.index)}. "
+            f"Ключи шкалы: {list(scale.keys())}"
+        )
+
+    filtered_pivot = pivot_table.loc[valid_answers].copy()
+    weights = pd.Series([scale[ans] for ans in valid_answers], index=valid_answers)
+
+    logger.debug(f"Used answers for calculation: {valid_answers}")
+
+    weighted_counts = filtered_pivot.multiply(weights, axis=0)
+    sum_weighted = weighted_counts.sum(axis=0)
+    sum_counts = filtered_pivot.sum(axis=0)
+    averages = sum_weighted / sum_counts
+
+    result_df = averages.to_frame(name="Average").T
+
+    logger.info(f"Averages calculated for waves: {list(result_df.columns)}")
+    logger.debug(f"Values: {result_df.values.tolist()}")
+
+    return {"average_table": result_df}
+
 
 # Реестр операций - связывает OperationType с реализацией
 OP_REGISTRY: dict[OperationType, Callable[..., dict[str, Any]]] = {
@@ -261,5 +309,6 @@ OP_REGISTRY: dict[OperationType, Callable[..., dict[str, Any]]] = {
     OperationType.FILTER: op_FILTER,
     OperationType.INTERSECT: op_INTERSECT,
     OperationType.UNION: op_UNION,
-    OperationType.PIVOT: op_PIVOT
+    OperationType.PIVOT: op_PIVOT,
+    OperationType.CALCULATE_AVERAGE: op_CALCULATE_AVERAGE
 }
