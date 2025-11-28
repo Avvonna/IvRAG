@@ -3,8 +3,8 @@ from typing import Any, Callable, Optional
 
 import pandas as pd
 
-from capability_spec import OperationType
-from utils import find_top_match
+from .capability_spec import OperationType
+from .utils import find_top_match
 
 logger = logging.getLogger(__name__)
 
@@ -233,9 +233,13 @@ def op_PIVOT(
         logger.debug(f"Normalized question: '{question}' -> '{closest}'")
         question = closest
     
+    question_df = dataset[dataset["question"] == question]
+    logger.debug(f"Исходный датасет: {dataset.shape}")
+    logger.debug(f"Нужный вопрос: {question_df.shape}")
+
     # Создаём pivot table
     pivot = pd.pivot_table(
-        data=dataset[dataset["question"] == question],
+        data=question_df,
         index="answer",
         columns="wave",
         values="respondent_uid",

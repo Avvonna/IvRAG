@@ -2,9 +2,9 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from capability_spec import OperationType
-from operations import OP_REGISTRY, GroundingError
-from schemas import PlannerOut
+from .capability_spec import OperationType
+from .operations import OP_REGISTRY, GroundingError
+from .schemas import PlannerOut
 
 logger = logging.getLogger(__name__)
 

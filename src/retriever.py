@@ -6,9 +6,9 @@ from string import Template
 
 from openai.types.chat import ChatCompletion
 
-from config import PipelineConfig
-from schemas import RetrieverOut, ScoredQuestion
-from utils import find_top_match, retry_call, split_dict_into_chunks
+from .config import PipelineConfig
+from .schemas import RetrieverOut, ScoredQuestion
+from .utils import find_top_match, retry_call, split_dict_into_chunks
 
 logger = logging.getLogger(__name__)
 

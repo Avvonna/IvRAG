@@ -2,8 +2,8 @@ import logging
 from collections import defaultdict, deque
 from typing import Any
 
-from grounder import GroundedStep, GrounderOut
-from operations import GroundingError
+from .grounder import GroundedStep, GrounderOut
+from .operations import GroundingError
 
 logger = logging.getLogger(__name__)
 

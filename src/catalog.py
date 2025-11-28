@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 from pydantic import BaseModel, Field
 
-from schemas import QuestionInfo
+from .schemas import QuestionInfo
 
 
 def _clip(xs: list[str], limit: int) -> list[str]:

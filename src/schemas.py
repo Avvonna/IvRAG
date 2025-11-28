@@ -7,7 +7,7 @@ from typing import Any, Type, TypeVar
 from pydantic import BaseModel, Field
 from pydantic.json_schema import SkipJsonSchema
 
-from capability_spec import OperationType
+from .capability_spec import OperationType
 
 T = TypeVar('T', bound='SaveableModel')
 
@@ -112,4 +112,3 @@ class PlannerOut(SaveableModel):
             res.append(f"\tOutputs: {s.outputs}")
             res.append(f"\tDepends on: {s.depends_on}")
         return "\n".join(res)
-   

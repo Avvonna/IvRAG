@@ -8,10 +8,10 @@ from openai import OpenAI
 from openai.types.shared.reasoning_effort import ReasoningEffort
 from pydantic import BaseModel
 
-from capability_spec import CapabilitySpec
-from catalog import QuestionCatalog
-from schemas import RetrieverOut
-from utils import get_unique_questions_info
+from .capability_spec import CapabilitySpec
+from .catalog import QuestionCatalog
+from .schemas import RetrieverOut
+from .utils import get_unique_questions_info
 
 DEFAULT_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 DEFAULT_TEMPERATURE = 0.2
