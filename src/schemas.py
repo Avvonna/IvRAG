@@ -111,5 +111,5 @@ class PlannerOut(SaveableModel):
             res.append(f"\tInputs: {s.inputs}")
             res.append(f"\tOutputs: {s.outputs}")
             res.append(f"\tDepends on: {s.depends_on}")
-            res.append("-- Goes to user --" if s.give_to_user else "Does NOT go to user")
+            res.append("\tGoes to user" if s.give_to_user else "\tDoes NOT go to user")
         return "\n".join(res)

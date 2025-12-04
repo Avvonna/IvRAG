@@ -28,7 +28,7 @@ class AgentParams(TypedDict, total=False):
     temperature: float
     response_model: Type[BaseModel]
     max_tokens: int
-    provider_sort: Literal["latency", "price"]
+    provider_sort: Literal["latency", "price", "throughput"]
     reasoning_effort: ReasoningEffort
     base_delay: float
     retries: int
@@ -40,7 +40,7 @@ class BaseAgentConfig:
     temperature: float = field(default=DEFAULT_TEMPERATURE)
     response_model: Type[BaseModel] | None = field(default=None)
     max_tokens: int | None = field(default=DEFAULT_MAX_TOKENS)
-    provider_sort: Literal["latency", "price"] | None = field(default=DEFAULT_PROVIDER_SORT)
+    provider_sort: Literal["latency", "throughput", "price"] | None = field(default=DEFAULT_PROVIDER_SORT)
     reasoning_effort: ReasoningEffort = field(default=DEFAULT_REASONING)
     base_delay: float = field(default=DEFAULT_BASE_DELAY)
     retries: int = field(default=DEFAULT_N_RETRIES)
