@@ -12,26 +12,20 @@ def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> tuple[d
     """ Выполняет план операций с учётом зависимостей и топологической сортировки """
     logger.info(f"Starting executor with {len(grounded_plan.steps)} steps")
     
-    # Валидация зависимостей
+    # Валидация зависимостей и сортировка
     _validate_dependencies(grounded_plan.steps)
-    
-    # Топологическая сортировка шагов
     sorted_steps = _topological_sort(grounded_plan.steps)
-    logger.info(f"Steps execution order: {[s.id for s in sorted_steps]}")
-
-    user_deliverables = {}
     
-    # Структуры для отслеживания истории данных
+    # Структуры для отслеживания истории
     var_ancestors: dict[str, set[str]] = defaultdict(set)
     step_descriptions: dict[str, str] = {}
 
-    # Выполнение шагов
+    # --- ЦИКЛ ВЫПОЛНЕНИЯ ШАГОВ ---
     for i, step in enumerate(sorted_steps):
         logger.info(f"Executing step {i+1}/{len(sorted_steps)}: {step.id} ({step.op_type.value})")
-
-        # Сохраняем описание для истории
         step_descriptions[step.id] = f"[{step.op_type.value}] {step.goal}"
 
+        # Сбор предков (provenance)
         current_ancestors = set()
         for inp_val in (step.inputs or {}).values():
             if isinstance(inp_val, str) and inp_val in var_ancestors:
@@ -44,22 +38,14 @@ def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> tuple[d
         current_ancestors.add(step.id)
         
         try:
-            # Материализация входов из контекста
+            # Материализация и выполнение
             kwargs = _materialize_inputs(step, runtime_ctx)
-            logger.debug(f"Step {step.id} inputs: {list(kwargs.keys())}")
-            
-            # Выполнение операции
             result = step.impl(**kwargs)
             
             if not isinstance(result, dict):
-                raise GroundingError(
-                    f"Шаг {step.id} вернул не словарь: {type(result).__name__}. "
-                    f"Ожидается dict[str, Any]"
-                )
+                raise GroundingError(f"Шаг {step.id} вернул не dict, а {type(result)}")
             
-            logger.debug(f"Step {step.id} produced keys: {list(result.keys())}")
-            
-            # Сохраняем реальные результаты в контекст
+            # Обновление контекста
             runtime_ctx.update(result)
 
             # По умолчанию используем ключи, которые вернула функция
@@ -73,47 +59,50 @@ def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> tuple[d
                     val = list(result.values())[0]
                     if plan_name not in runtime_ctx:
                         runtime_ctx[plan_name] = val
-                        logger.debug(f"Created output alias: {plan_name} -> {type(val).__name__}")
                     output_keys = [plan_name]
                 
                 # Случай 2: Количество совпадает (N к N) -> Пытаемся мапить по порядку (редкий кейс)
                 elif len(step.outputs) == len(result):
                     result_vals = list(result.values())
-                    new_keys = []
+                    output_keys = []
                     for idx, plan_name in enumerate(step.outputs):
                         runtime_ctx[plan_name] = result_vals[idx]
-                        new_keys.append(plan_name)
-                    output_keys = new_keys
+                        output_keys.append(plan_name)
             
-            # Привязываем историю ко всем выходным переменным (и реальным, и алиасам)
+            # Привязываем историю ко всем выходам шага
             for key in output_keys:
                 var_ancestors[key] = current_ancestors.copy()
 
-            if step.give_to_user:
-                logger.info(f"Step {step.id} marked for user delivery. Outputs: {output_keys}")
-                for out_name in output_keys:
-                    # Важно брать из runtime_ctx, т.к. output_keys теперь точно там есть
-                    if out_name in runtime_ctx:
-                        user_deliverables[out_name] = runtime_ctx[out_name]
+            logger.info(f"Step {step.id} completed. Outputs: {output_keys}")
 
-            logger.info(f"Step {step.id} completed successfully")
-            
         except Exception as e:
             logger.error(f"Step {step.id} failed: {e}", exc_info=True)
-            raise GroundingError(
-                f"Ошибка выполнения шага {step.id} ({step.op_type.value}): {e}"
-            ) from e
+            raise GroundingError(f"Ошибка выполнения {step.id}: {e}") from e
+
+    # --- СБОР РЕЗУЛЬТАТОВ ДЛЯ ПОЛЬЗОВАТЕЛЯ ---
+    user_deliverables = {}
     
-    # Формирование читаемой истории для финальных результатов
+    # Берем список переменных, который LLM попросила вернуть
+    targets = getattr(grounded_plan, "export_variables", [])
+    
+    logger.info(f"Collecting user deliverables: {targets}")
+    
+    for var_name in targets:
+        if var_name in runtime_ctx:
+            user_deliverables[var_name] = runtime_ctx[var_name]
+        else:
+            logger.warning(
+                f"Переменная '{var_name}' была в списке export_variables, "
+                "но не была найдена в контексте после выполнения плана."
+            )
+
+    # --- ФОРМИРОВАНИЕ ИСТОРИИ (PROVENANCE) ---
     final_provenance = {}
     for key in user_deliverables:
         ancestor_ids = var_ancestors.get(key, set())
         
-        # Сортировка ID
         def sort_key(x):
-            if x.startswith('s') and x[1:].isdigit():
-                return int(x[1:])
-            return x
+            return int(x[1:]) if x.startswith('s') and x[1:].isdigit() else x
             
         sorted_ids = sorted(list(ancestor_ids), key=sort_key)
         
@@ -123,7 +112,7 @@ def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> tuple[d
                 history.append(f"{sid}: {step_descriptions[sid]}")
         final_provenance[key] = history
     
-    logger.info(f"Executor completed. Returning {len(user_deliverables)} deliverables with provenance.")
+    logger.info(f"Executor completed. Returning {len(user_deliverables)} items.")
     return user_deliverables, final_provenance
 
 

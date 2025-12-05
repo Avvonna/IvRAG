@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from .capability_spec import OperationType
@@ -19,13 +19,13 @@ class GroundedStep:
     inputs: dict[str, str]
     outputs: list[str]
     depends_on: list[str]
-    give_to_user: bool
 
 
 @dataclass
 class GrounderOut:
     """Результат работы grounder"""
     steps: list[GroundedStep]
+    export_variables: list[str] = field(default_factory=list)
 
     def __str__(self):
         res = []
@@ -34,6 +34,7 @@ class GrounderOut:
             res.append(f"\tGoal: {s.goal}")
             res.append(f"\tInputs: {s.inputs}")
             res.append(f"\tOutputs: {s.outputs}")
+        res.append(f"\nEXPORT VARIABLES: {self.export_variables}")
         return "\n".join(res)
 
 
@@ -81,8 +82,10 @@ def grounder(plan: PlannerOut) -> GrounderOut:
             inputs=inputs_map,
             outputs=list(s.outputs or []),
             depends_on=list(s.depends_on or []),
-            give_to_user=s.give_to_user
         ))
+
+    exports = getattr(plan, "export_variables", [])
         
-    logger.info(f"Grounder completed: {len(grounded)} steps ready")
-    return GrounderOut(steps=grounded)
+    logger.info(f"Grounder completed: {len(grounded)} steps ready. Exports: {exports}")
+
+    return GrounderOut(steps=grounded, export_variables=exports)

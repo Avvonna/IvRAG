@@ -39,13 +39,12 @@ class CapabilitySpec:
                 op.category = self._infer_category(op.name)
 
     def _infer_category(self, op_type: OperationType) -> str:
-        name = op_type.value
-        match name:
-            case "LOAD":
+        match op_type:
+            case OperationType.LOAD_DATA:
                 return "Data Loading"
-            case "FILTER" | "INTERSECT" | "UNION":
+            case OperationType.FILTER | OperationType.INTERSECT | OperationType.UNION:
                 return "Filtering"
-            case "PIVOT" | "CALCULATE_AVERAGE":
+            case OperationType.PIVOT | OperationType.CALCULATE_AVERAGE:
                 return "Aggregation"
             case _:
                 return "Other"
@@ -56,7 +55,7 @@ class CapabilitySpec:
         return [op for op in self.operations if op.category == category]
 
     def get_categories(self) -> list[str]:
-        return sorted(set(op.category for op in self.operations))
+        return sorted(list(set(op.category for op in self.operations)))
 
     @staticmethod
     def _create_default_operations() -> list[OperationSpec]:
@@ -65,8 +64,10 @@ class CapabilitySpec:
 
             OperationSpec(
                 name=OperationType.LOAD_DATA,
-                description="Загрузить данные результатов опросов",
-                inputs={"waves": "Список волн, которые следует взять для анализа"},
+                description="Загрузить данные результатов опросов.",
+                inputs={
+                    "waves": "List[str] — Список кодов волн (например, ['2025-01']). Если пустой список — загружаются все."
+                },
                 outputs=["dataset"],
                 example={"waves": ["2025-01"]}
             ),
@@ -75,44 +76,43 @@ class CapabilitySpec:
 
             OperationSpec(
                 name=OperationType.FILTER,
-                description="Отфильтровать респондентов по ответам на конкретный вопрос",
+                description="Оставить в датасете только тех респондентов, которые дали определенные ответы на указанный вопрос.",
                 inputs={
-                    "dataset": "Исходный датасет",
-                    "question": "Вопрос из allowed_questions",
-                    "answer_values": "Список допустимых ответов (если пусто - все ответившие)",
-                    "logic": "Логика фильтрации: 'include' (есть эти ответы) или 'exclude' (нет этих ответов)"
+                    "dataset": "DataFrame — Исходный датасет",
+                    "question": "str — Точная формулировка вопроса для фильтрации",
+                    "answer_values": "List[str] — Список ответов. Если None/пустой — берутся все, кто ответил на вопрос.",
+                    "logic": "str — 'include' (оставить этих) или 'exclude' (убрать этих). Default: 'include'."
                 },
                 outputs=["filtered_dataset"],
                 example={
                     "dataset": "dataset",
-                    "question": "[Тег] Вопрос?",
-                    "answer_values": ["Ответ 1", "Ответ 2"],
+                    "question": "Ваш возраст?",
+                    "answer_values": ["18-24", "25-34"],
                     "logic": "include"
                 }
             ),
 
             OperationSpec(
                 name=OperationType.INTERSECT,
-                description="Найти пересечение респондентов из нескольких датасетов (логическое И) и склеить их данные",
+                description="Найти пересечение аудиторий (Логическое И). Возвращает датасет с респондентами, которые присутствуют ВО ВСЕХ переданных датасетах.",
                 inputs={
-                    "datasets": "Список датасетов для пересечения (минимум 2)",
-                    "dataset_names": "Опциональные имена датасетов для отладки"
+                    "datasets": "List[DataFrame] — Список переменных с датасетами (минимум 2)",
                 },
                 outputs=["intersected_dataset"],
                 example={
-                    "datasets": ["filtered_dataset_1", "filtered_dataset_2"]
+                    "datasets": ["df_men", "df_young"]
                 }
             ),
 
             OperationSpec(
                 name=OperationType.UNION,
-                description="Найти объединение респондентов из нескольких датасетов (логическое ИЛИ) и склеить их данные",
+                description="Найти объединение аудиторий (Логическое ИЛИ). Возвращает датасет с респондентами, которые есть ХОТЯ БЫ В ОДНОМ из датасетов.",
                 inputs={
-                    "datasets": "Список датасетов для объединения (минимум 2)"
+                    "datasets": "List[DataFrame] — Список переменных с датасетами (минимум 2)"
                 },
                 outputs=["union_dataset"],
                 example={
-                    "datasets": ["filtered_dataset_1", "filtered_dataset_2", "filtered_dataset_3"]
+                    "datasets": ["df_customers_a", "df_customers_b"]
                 }
             ),
 
@@ -120,29 +120,39 @@ class CapabilitySpec:
 
             OperationSpec(
                 name=OperationType.PIVOT,
-                description="Вычислить распределение ответов на вопрос. В колонках - волны опросов, в ячейках считается число уникальных респондентов.",
+                description=(
+                    "Построить кросс-таблицу. "
+                    "Rows (Индекс): Ответы на указанные вопросы. "
+                    "Columns: Волны опросов. "
+                    "Values: Количество уникальных респондентов. "
+                    "Если указано несколько вопросов, создается MultiIndex."
+                ),
                 inputs={
-                    "dataset": "Датасет (может быть отфильтрованным)",
-                    "question": "Вопрос ТОЧНО из allowed_questions"
+                    "dataset": "DataFrame — Датасет",
+                    "questions": "List[str] — Список вопросов для группировки (строки таблицы)."
                 },
                 outputs=["pivot"],
                 example={
                     "dataset": "filtered_dataset",
-                    "question": "[Q115] В каких магазинах Вы делаете покупки?"
+                    "questions": ["Ваш пол", "Ваш возраст"]
                 }
             ),
 
             OperationSpec(
                 name=OperationType.CALCULATE_AVERAGE,
-                description="Рассчитать среднее значение (Weighted Mean) на основе сводной таблицы и шкалы весов.",
+                description=(
+                    "Рассчитать взвешенное среднее (Weighted Mean) по шкале. "
+                    "ВАЖНО: Работает корректно только если PIVOT был построен по ОДНОМУ вопросу. "
+                    "Ключи в `scale` должны точно совпадать с вариантами ответов в строках таблицы."
+                ),
                 inputs={
-                    "pivot_table": "Сводная таблица (результат операции PIVOT)",
-                    "scale": "Словарь сопоставления ответов и чисел (например, {'Отлично': 5, 'Плохо': 1})"
+                    "pivot_table": "DataFrame — Результат операции PIVOT",
+                    "scale": "Dict[str, float] — Словарь весов {'Ответ': Вес}."
                 },
                 outputs=["average_table"],
                 example={
-                    "pivot_table": "pivot",
-                    "scale": {"Полностью согласен": 5, "Скорее согласен": 4, "Нет": 1}
+                    "pivot_table": "pivot_nps",
+                    "scale": {'Полностью согласен': 5, 'Скорее согласен': 4, 'Нет': 1}
                 }
             )
         ]
@@ -167,7 +177,7 @@ class CapabilitySpec:
             
             for op in self.list_operations(category):
                 lines.append(f"### {op.name.value}")
-                lines.append(f"**Описание:** {op.description}\n")
+                lines.append(f"{op.description}\n")
                 
                 # Входы
                 lines.append("**Входные параметры:**")
@@ -176,7 +186,7 @@ class CapabilitySpec:
                 lines.append("")
                 
                 # Выходы
-                lines.append(f"**Выходы:** {', '.join(f'`{o}`' for o in op.outputs)}\n")
+                lines.append(f"**Создает переменные:** {', '.join(f'`{o}`' for o in op.outputs)}\n")
                 
                 # Пример
                 if include_examples and op.example:

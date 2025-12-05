@@ -212,45 +212,68 @@ def op_UNION(
 def op_PIVOT(
     *,
     dataset: pd.DataFrame,
-    question: str,
+    questions: list[str],
     **_
 ) -> dict[str, Any]:
     """
-    Создаёт сводную таблицу с распределением ответов на вопрос
+    Создаёт сводную таблицу с распределением ответов.
     
     Args:
-        dataset: Датафрейм (может быть отфильтрованным)
-        question: Вопрос для анализа
+        dataset: Датафрейм (long format)
+        questions: список вопросов (list[str])
         
     Returns:
         dict с ключом "pivot" и сводной таблицей
     """
-    logger.info(f"Creating pivot for question: {question}")
-    
-    # Проверка наличия вопроса
-    if question not in dataset["question"].values:
-        closest = find_top_match(question, dataset["question"].drop_duplicates().to_list())
-        logger.debug(f"Normalized question: '{question}' -> '{closest}'")
-        question = closest
-    
-    question_df = dataset[dataset["question"] == question]
-    logger.debug(f"Исходный датасет: {dataset.shape}")
-    logger.debug(f"Нужный вопрос: {question_df.shape}")
 
-    # Создаём pivot table
+    logger.info(f"Creating pivot for questions: {questions}")
+    
+    # 2. Нормализация названий вопросов (проверка наличия)
+    normalized_questions = []
+    all_questions = dataset["question"].drop_duplicates().to_list()
+    
+    for q in questions:
+        if q not in dataset["question"].values:
+            closest = find_top_match(q, all_questions) 
+            logger.debug(f"Normalized question: '{q}' -> '{closest}'")
+            normalized_questions.append(closest)
+        else:
+            normalized_questions.append(q)
+            
+    subset = dataset[dataset["question"].isin(normalized_questions)].copy()
+    
+    if subset.empty:
+        logger.warning("Dataset is empty after filtering by questions.")
+        return {"pivot": pd.DataFrame()}
+
+    # Трансформация Long -> Wide
+    try:
+        wide_df = subset.pivot_table(
+            index=["respondent_uid", "wave"], 
+            columns="question", 
+            values="answer", 
+            aggfunc="first", # type: ignore
+            observed=True
+        ).reset_index()
+    except Exception as e:
+        logger.error(f"Error pivoting to wide format: {e}")
+        raise e
+    
+    logger.debug(f"Wide dataframe shape: {wide_df.shape}")
+    
+    available_cols = [q for q in normalized_questions if q in wide_df.columns]
+    
     pivot = pd.pivot_table(
-        data=question_df,
-        index="answer",
+        data=wide_df,
+        index=available_cols,
         columns="wave",
         values="respondent_uid",
-        aggfunc="nunique", # type: ignore
+        aggfunc="count",
         fill_value=0,
         observed=True
-    ) # type: ignore
+    )
     
-    logger.info(f"Pivot table created: {pivot.shape}")
-    logger.debug(f"Pivot columns: {list(pivot.columns)}")
-    logger.debug(f"Pivot index: {list(pivot.index)}")
+    logger.info(f"Final pivot table created: {pivot.shape}")
     
     return {"pivot": pivot}
 

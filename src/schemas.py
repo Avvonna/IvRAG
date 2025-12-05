@@ -89,10 +89,6 @@ class PlanStep(BaseModel):
         default_factory=list,
         description="Имена выходов, которые появятся в контексте"
     )
-    give_to_user: bool = Field(
-        ...,
-        description="Отдавать ли выходы данного шага пользователю или это промежуточные переменные"
-    )
     depends_on: list[str] = Field(
         default_factory=list,
         description="ID шагов, от которых зависит текущий или []"
@@ -101,6 +97,10 @@ class PlanStep(BaseModel):
 class PlannerOut(SaveableModel):
     # analysis: str = Field(default="", description="Короткий комментарий стратегии")
     steps: list[PlanStep] = Field(default_factory=list)
+    export_variables: list[str] = Field(
+        default_factory=list,
+        description="Список имен переменных (из outputs шагов), которые нужно вернуть пользователю"
+    )
 
     def __str__(self):
         res = []
@@ -111,5 +111,5 @@ class PlannerOut(SaveableModel):
             res.append(f"\tInputs: {s.inputs}")
             res.append(f"\tOutputs: {s.outputs}")
             res.append(f"\tDepends on: {s.depends_on}")
-            res.append("\tGoes to user" if s.give_to_user else "\tDoes NOT go to user")
+        res.append(f"\nEXPORT VARIABLES: {self.export_variables}")
         return "\n".join(res)

@@ -81,7 +81,7 @@ def test_pipeline_equivalence(sample_data):
     df_seq_final = p1_step2["filtered_dataset"]
     
     # Шаг 3: Пивот
-    p1_res = op_PIVOT(dataset=df_seq_final, question=target_q)
+    p1_res = op_PIVOT(dataset=df_seq_final, questions=[target_q])
     pivot_sequential = p1_res["pivot"]
 
     # ==========================================
@@ -102,7 +102,7 @@ def test_pipeline_equivalence(sample_data):
     df_intersected = p2_intersect["intersected_dataset"]
     
     # Шаг 4: Пивот
-    p2_res = op_PIVOT(dataset=df_intersected, question=target_q)
+    p2_res = op_PIVOT(dataset=df_intersected, questions=[target_q])
     pivot_intersection = p2_res["pivot"]
 
     # ==========================================
