@@ -128,13 +128,16 @@ class CapabilitySpec:
                     "Если указано несколько вопросов, создается MultiIndex."
                 ),
                 inputs={
-                    "dataset": "DataFrame — Датасет",
-                    "questions": "List[str] — Список вопросов для группировки (строки таблицы)."
+                    "dataset": "DataFrame — Датасет (исходный или после фильтрации).",
+                    "questions": (
+                        "List[str] — Список вопросов для разбивки строк (например, ['Пол']). "
+                        "Оставь ПУСТЫМ список [], если нужно просто посчитать количество людей в каждой волне"
+                    )
                 },
                 outputs=["pivot"],
                 example={
                     "dataset": "filtered_dataset",
-                    "questions": ["Ваш пол", "Ваш возраст"]
+                    "questions": []
                 }
             ),
 

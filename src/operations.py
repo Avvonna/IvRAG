@@ -67,10 +67,8 @@ def op_FILTER(
     # Проверка наличия вопроса в данных
     if question not in dataset["question"].values:
         closest = find_top_match(question, dataset["question"].drop_duplicates().to_list())
-        raise GroundingError(
-            f"Вопрос '{question}' не найден в данных. "
-            f"Возможно, вы имели в виду: '{closest}'?"
-        )
+        logger.warning(f"Вопрос '{question}' не найден в данных. Замена на: '{closest}'")
+        question = closest
     
     # Фильтруем указанный вопрос
     question_mask = dataset["question"] == question
@@ -212,7 +210,7 @@ def op_UNION(
 def op_PIVOT(
     *,
     dataset: pd.DataFrame,
-    questions: list[str],
+    questions: Optional[list[str]] = None,
     **_
 ) -> dict[str, Any]:
     """
@@ -227,8 +225,17 @@ def op_PIVOT(
     """
 
     logger.info(f"Creating pivot for questions: {questions}")
+
+    if not questions:
+        logger.info("No questions provided. Calculating total counts per wave.")
+        
+        counts_per_wave = dataset.groupby("wave", observed=True)["respondent_uid"].nunique()
+        pivot = counts_per_wave.to_frame(name="Total").T
+        
+        logger.info(f"Simple count pivot created: {pivot.shape}")
+        return {"pivot": pivot}
     
-    # 2. Нормализация названий вопросов (проверка наличия)
+    # Нормализация названий вопросов (проверка наличия)
     normalized_questions = []
     all_questions = dataset["question"].drop_duplicates().to_list()
     
