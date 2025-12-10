@@ -14,7 +14,7 @@ class GroundingError(Exception):
     pass
 
 
-def op_LOAD_DATA(*, waves: list[str], dataset: pd.DataFrame, **_) -> dict[str, Any]:
+def op_LOAD_DATA(*, dataset: pd.DataFrame, waves: list[str] = [], **_) -> dict[str, Any]:
     """
     Загружает данные для указанных волн опроса
     
@@ -287,48 +287,73 @@ def op_PIVOT(
 def op_CALCULATE_AVERAGE(
     *,
     pivot_table: pd.DataFrame,
+    question: str,
     scale: dict[str, int | float],
     **_
 ) -> dict[str, Any]:
     """
-    Считает взвешенное среднее по колонкам сводной таблицы.
-    
-    Formula: Sum(Count * Weight) / Sum(Count)
-    Только для строк, которые есть в scale.
+    Считает взвешенное среднее, сворачивая указанный уровень мультииндекса (question).
+    Остальные уровни индекса сохраняются (используются для группировки).
     
     Args:
-        pivot_table: DataFrame, где index - варианты ответов, columns - волны, values - количество.
+        pivot_table: DataFrame с MultiIndex.
+        question: Точное название уровня индекса, который нужно усреднить.
         scale: Словарь { "Вариант ответа": Вес }.
         
     Returns:
-        dict с ключом "average_table" (DataFrame с одной строкой 'Average')
+        dict с "average_table".
     """
-    logger.info("Calculating weighted average")
-    logger.debug(f"Scale provided: {scale}")
+    logger.info(f"Calculating weighted average for specific level: {question}")
+    
+    if question not in pivot_table.index.names:
+        # Fuzzy search, если некорректная формулировка
+        target_level = find_top_match(question, pivot_table.index.names)
+    else:
+        target_level = question
 
-    valid_answers = [ans for ans in pivot_table.index if ans in scale]
-
-    if not valid_answers:
+    level_values = pivot_table.index.get_level_values(target_level)
+    valid_mask = level_values.isin(scale.keys())
+    
+    if not valid_mask.any():
         raise GroundingError(
-            "Ни один вариант ответа из сводной таблицы не найден в шкале (scale). "
-            f"Ответы в таблице: {list(pivot_table.index)}. "
-            f"Ключи шкалы: {list(scale.keys())}"
+            f"В уровне '{target_level}' не найдено значений из scale. "
+            f"Значения уровня: {list(level_values.unique())[:10]}... "
+            f"Ключи scale: {list(scale.keys())}"
         )
 
-    filtered_pivot = pivot_table.loc[valid_answers].copy()
-    weights = pd.Series([scale[ans] for ans in valid_answers], index=valid_answers)
+    filtered_pivot = pivot_table.loc[valid_mask].copy()
+    
+    filtered_level_values = filtered_pivot.index.get_level_values(target_level)
+    weights_vector = filtered_level_values.map(scale)
+    weights_series = pd.Series(weights_vector, index=filtered_pivot.index)
 
-    logger.debug(f"Used answers for calculation: {valid_answers}")
+    # Умножаем количество на вес
+    weighted_counts = filtered_pivot.multiply(weights_series, axis=0)
 
-    weighted_counts = filtered_pivot.multiply(weights, axis=0)
-    sum_weighted = weighted_counts.sum(axis=0)
-    sum_counts = filtered_pivot.sum(axis=0)
+    # Нам нужно сохранить все уровни КРОМЕ целевого (question)
+    group_levels = [name for name in pivot_table.index.names if name != target_level]
+    
+    if group_levels:
+        logger.info(f"Grouping by remaining levels: {group_levels}")
+        # Суммируем (Вес*Кол-во) и (Кол-во) в разрезе оставшихся уровней
+        sum_weighted = weighted_counts.groupby(level=group_levels, observed=True).sum()
+        sum_counts = filtered_pivot.groupby(level=group_levels, observed=True).sum()
+    else:
+        # Если это был единственный уровень (обычный Index), схлопываем всё в одну строку
+        logger.info("No grouping levels remaining, calculating total average.")
+        sum_weighted = weighted_counts.sum(axis=0)
+        sum_counts = filtered_pivot.sum(axis=0)
+
+    # 6. Расчет среднего
     averages = sum_weighted / sum_counts
 
-    result_df = averages.to_frame(name="Average").T
-
-    logger.info(f"Averages calculated for waves: {list(result_df.columns)}")
-    logger.debug(f"Values: {result_df.values.tolist()}")
+    # 7. Форматирование результата
+    if isinstance(averages, pd.Series):
+        # Если результат - Series (одна строка), превращаем в DataFrame
+        result_df = averages.to_frame(name="Average").T
+    else:
+        # Если DataFrame (есть индекс по регионам), оставляем как есть
+        result_df = averages
 
     return {"average_table": result_df}
 
