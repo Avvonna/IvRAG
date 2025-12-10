@@ -1,5 +1,10 @@
 index/
+logs/
+
+*.xls
 *.xlsx
+*.parquet
+*.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
