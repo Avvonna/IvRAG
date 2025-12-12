@@ -64,17 +64,36 @@ class PipelineConfig:
     """Конфигурация Pipeline"""
     client: OpenAI
 
+    # Конфиги агентов
     retriever_config: RetrieverConfig
     planner_config: PlannerConfig
 
-    df_schema: list[str]
-    catalog: QuestionCatalog
+    # Входные данные
+    source_df: pd.DataFrame = field(repr=False)
+    # По умолчанию берутся вопросы только за последнюю волну
+    question_waves: list[str] | None = field(default_factory=lambda: ["2025-03"])
 
-    # Необходимо для контекста LLM
-    all_QS_info_dict: dict[str, dict] = field(init=False)
+    # Служебные поля
+    catalog: QuestionCatalog = field(init=False)
+    all_QS_info_dict: dict = field(init=False, repr=False)
     relevant_questions: list[str] = field(default_factory=list, init=False)
 
     def __post_init__(self):
+        # Валидация и фильтрация DataFrame
+        if self.question_waves:
+            available_waves = set(self.source_df["wave"].unique())
+            requested_waves = set(self.question_waves)
+            
+            diff_waves = requested_waves - available_waves
+            if diff_waves:
+                raise KeyError(f"В БД отсутствуют запрашиваемые волны: {sorted(diff_waves)}")
+        
+        # Создаем каталог
+        self.catalog = QuestionCatalog.from_df(
+            get_unique_questions_info(self.source_df)
+        )
+        
+        # Заполняем вспомогательные поля
         self.all_QS_info_dict = self.catalog.as_value_catalog()
     
     def relevant_as_value_catalog(self):
@@ -97,6 +116,7 @@ class PipelineConfig:
     def setup(
         cls,
         df: pd.DataFrame,
+        question_waves: list[str] | None,
         client: OpenAI,
         retriever_params: AgentParams = {},
         planner_params: AgentParams = {},
@@ -109,8 +129,6 @@ class PipelineConfig:
             client=client,
             retriever_config=rc,
             planner_config=pp,
-            df_schema=df.columns.to_list(),
-            catalog=QuestionCatalog.from_df(
-                get_unique_questions_info(df)
-            )
+            source_df=df,
+            question_waves=question_waves
         )

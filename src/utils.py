@@ -31,16 +31,17 @@ def setup_environment():
 def setup_logging(
     mode: Literal['CRITICAL', 'ERROR', 'WARNING', 'INFO', 'DEBUG', 'NOTSET'] = 'NOTSET',
     log_dir: str = "logs",
-    run_dir: str|None = None,
+    run_dir: str | None = None,
     enable_console: bool = True
 ):
     os.makedirs(log_dir, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
+    # Если run_dir не задан, генерируем новый на основе времени
     if not run_dir:
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         run_dir = os.path.join(log_dir, f"run_{timestamp}")
-        os.makedirs(run_dir, exist_ok=True)
+    
+    os.makedirs(run_dir, exist_ok=True)
     log_filepath = os.path.join(run_dir, "log.txt")
     
     # Создаем форматтер
@@ -56,6 +57,7 @@ def setup_logging(
     # Очищаем существующие обработчики
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
+        handler.close()
     
     # Файловый обработчик
     file_handler = logging.FileHandler(log_filepath, encoding='utf-8')
@@ -70,15 +72,17 @@ def setup_logging(
         console_handler.setLevel(getattr(logging, mode))
         root_logger.addHandler(console_handler)
     
-    # Наши кастомные логгеры
-    allowed_loggers = ['retriever', 'dreamer', 'planner', 'grounder', 'executor', 'operations']
+    # Настройка уровней для модулей
+    allowed_loggers = ['retriever', 'dreamer', 'planner', 'grounder', 'executor', 'operations', 'utils']
+    allowed_loggers += [f"src.{i}" for i in allowed_loggers]
+    
     for logger_name in allowed_loggers:
         logging.getLogger(logger_name).setLevel(mode)
     
     # Подавляем остальные
     other_loggers = [
         'openai', 'httpx', 'httpcore', 'urllib3', 'pandas',
-        'pydantic', 'sqlalchemy', 'fastparquet', 'numexpr'
+        'pydantic', 'sqlalchemy', 'fastparquet', 'numexpr', 'watchdog', 'streamlit'
     ]
     for nl_name in other_loggers:
         logging.getLogger(nl_name).setLevel(logging.ERROR)

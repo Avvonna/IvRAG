@@ -42,7 +42,8 @@ class SaveableModel(BaseModel):
         
         try:
             with open(path, 'w', encoding='utf-8') as f:
-                json.dump(self.model_dump(), f, indent=2, ensure_ascii=False)
+                data = self.model_dump(mode='json')
+                json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
             raise ValueError(f"Ошибка сохранения в файл {path}: {e}")
 
@@ -79,20 +80,19 @@ class RetrieverOut(SaveableModel):
 
 class PlanStep(BaseModel):
     id: str = Field(..., description="Уникальный идентификатор шага (s1, s2, ...)")
-    goal: str = Field(default="", description="Человекочитаемая цель шага")
     operation: OperationType = Field(..., description="Тип операции из OperationType")
-    inputs: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Словарь аргументов: {имя_параметра: значение_или_имя_переменной}"
+    goal: str = Field(default="", description="Человекочитаемая цель шага, кратко")
+    inputs: dict[str, str | int | float | list[str]] = Field(
+        ...,
+        description=(
+            "Словарь аргументов для операции. "
+            "Ключи ДОЛЖНЫ совпадать с 'Входные параметры' из спецификации (например: 'dataset', 'waves', 'question'). "
+            "Значения — это конкретные данные или имена переменных из предыдущих шагов."
+        )
     )
-    outputs: list[str] = Field(
-        default_factory=list,
-        description="Имена выходов, которые появятся в контексте"
-    )
-    depends_on: list[str] = Field(
-        default_factory=list,
-        description="ID шагов, от которых зависит текущий или []"
-    )
+    
+    outputs: list[str] = Field(..., description="Имена переменных, которые создает этот шаг")
+    depends_on: list[str] = Field(default_factory=list, description="ID шагов, от которых зависит этот шаг")
 
 class PlannerOut(SaveableModel):
     # analysis: str = Field(default="", description="Короткий комментарий стратегии")
@@ -111,5 +111,31 @@ class PlannerOut(SaveableModel):
             res.append(f"\tInputs: {s.inputs}")
             res.append(f"\tOutputs: {s.outputs}")
             res.append(f"\tDepends on: {s.depends_on}")
+        res.append(f"\nEXPORT VARIABLES: {self.export_variables}")
+        return "\n".join(res)
+
+# Grounder
+
+class GroundedStep(BaseModel):
+    """Шаг с валидированными аргументами, готовый к исполнению"""
+    id: str
+    goal: str
+    op_type: OperationType
+    inputs: dict[str, Any]
+    outputs: list[str]
+    depends_on: list[str]
+
+class GrounderOut(SaveableModel):
+    """Результат работы grounder - сохраняемый"""
+    steps: list[GroundedStep] = Field(default_factory=list)
+    export_variables: list[str] = Field(default_factory=list)
+
+    def __str__(self):
+        res = []
+        for i, s in enumerate(self.steps):
+            res.append(f"{i}. [{s.id}] {s.op_type}")
+            res.append(f"\tGoal: {s.goal}")
+            res.append(f"\tInputs: {s.inputs}")
+            res.append(f"\tOutputs: {s.outputs}")
         res.append(f"\nEXPORT VARIABLES: {self.export_variables}")
         return "\n".join(res)

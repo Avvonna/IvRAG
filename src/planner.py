@@ -46,7 +46,7 @@ def planner(
         if not plan or not plan.steps:
             raise ValueError("LLM returned empty plan or no steps")
 
-        # logger.debug(f"Plan:\n{plan}")
+        logger.debug(f"Plan:\n{plan}")
 
         return plan
 

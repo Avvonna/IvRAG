@@ -2,8 +2,9 @@ import logging
 from collections import defaultdict, deque
 from typing import Any
 
-from .grounder import GroundedStep, GrounderOut
-from .operations import GroundingError
+from .grounder import GroundedStep
+from .operations import OP_REGISTRY, GroundingError
+from .schemas import GrounderOut
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,13 @@ def executor(grounded_plan: GrounderOut, runtime_ctx: dict[str, Any]) -> tuple[d
         try:
             # Материализация и выполнение
             kwargs = _materialize_inputs(step, runtime_ctx)
-            result = step.impl(**kwargs)
+            func_impl = OP_REGISTRY.get(step.op_type)
+            
+            if not func_impl:
+                raise ValueError(f"Operation {step.op_type} not found in registry during execution")
+                
+            # Вызываем функцию
+            result = func_impl(**kwargs) 
             
             if not isinstance(result, dict):
                 raise GroundingError(f"Шаг {step.id} вернул не dict, а {type(result)}")
